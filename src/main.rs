@@ -5,7 +5,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::i2c;
-use embassy_rp::peripherals::PIO0;
+use embassy_rp::peripherals::{I2C0, PIO0};
 use embassy_rp::pio;
 use embassy_rp::pio_programs::rotary_encoder::{Direction, PioEncoder, PioEncoderProgram};
 use embassy_rp::{
@@ -20,11 +20,12 @@ use embedded_graphics::{
     text::{Baseline, Text},
 };
 use gpio::{Input, Level, Output, Pull};
-use ssd1306::{I2CDisplayInterface, Ssd1306, prelude::*};
+use ssd1306::{I2CDisplayInterface, Ssd1306Async, prelude::*};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
    PIO0_IRQ_0 => pio::InterruptHandler<PIO0>;
+   I2C0_IRQ => i2c::InterruptHandler<I2C0>;
 });
 
 #[embassy_executor::task]
@@ -76,19 +77,19 @@ async fn main(spawner: Spawner) {
     i2c_config.frequency = 400_000;
     i2c_config.sda_pullup = false;
     i2c_config.scl_pullup = false;
-    let i2c_bus = i2c::I2c::new_blocking(p.I2C0, scl, sda, i2c_config);
+    let i2c_bus = i2c::I2c::new_async(p.I2C0, scl, sda, Irqs, i2c_config);
     info!("Configured I2C");
 
     // Display init
     let display_interface = I2CDisplayInterface::new(i2c_bus);
-    let mut display = Ssd1306::new(
+    let mut display = Ssd1306Async::new(
         display_interface,
         DisplaySize128x64,
         DisplayRotation::Rotate0,
     )
     .into_buffered_graphics_mode();
-    display.init().unwrap();
-    display.set_display_on(true).unwrap();
+    display.init().await.unwrap();
+    display.set_display_on(true).await.unwrap();
     Timer::after_millis(100).await;
     info!("Configured Display");
 
@@ -102,7 +103,7 @@ async fn main(spawner: Spawner) {
         Text::with_baseline("Button Pressed", Point::zero(), text_style, Baseline::Top);
 
     hello_text.draw(&mut display).unwrap();
-    display.flush().unwrap();
+    display.flush().await.unwrap();
 
     spawner.spawn(blink(p.PIN_25.into())).unwrap();
     spawner.spawn(handle_encoder(encoder)).unwrap();
@@ -112,13 +113,13 @@ async fn main(spawner: Spawner) {
         button.wait_for_low().await;
         display.clear_buffer();
         pressed_text.draw(&mut display).unwrap();
-        display.flush().unwrap();
+        display.flush().await.unwrap();
         info!("Button Pressed");
 
         button.wait_for_high().await;
         display.clear_buffer();
         hello_text.draw(&mut display).unwrap();
-        display.flush().unwrap();
+        display.flush().await.unwrap();
         info!("Button Released");
     }
 }
