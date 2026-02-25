@@ -4,14 +4,9 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
-use embassy_rp::i2c;
 use embassy_rp::peripherals::{I2C0, PIO0};
-use embassy_rp::pio;
 use embassy_rp::pio_programs::rotary_encoder::{Direction, PioEncoder, PioEncoderProgram};
-use embassy_rp::{
-    Peri,
-    gpio::{self, AnyPin},
-};
+use embassy_rp::{gpio, i2c, pio};
 use embassy_time::Timer;
 use embedded_graphics::{
     mono_font::{MonoTextStyleBuilder, ascii::FONT_6X13},
@@ -19,7 +14,7 @@ use embedded_graphics::{
     prelude::*,
     text::{Baseline, Text},
 };
-use gpio::{Input, Level, Output, Pull};
+use gpio::{Input, Pull};
 use ssd1306::{I2CDisplayInterface, Ssd1306Async, prelude::*};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -29,31 +24,25 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-async fn blink(pin: Peri<'static, AnyPin>) {
-    let mut led = Output::new(pin, Level::Low);
-
+async fn handle_button(mut button: Input<'static>) {
     loop {
-        info!("LED On");
-        led.set_high();
-        Timer::after_secs(2).await;
+        button.wait_for_low().await;
+        info!("Button Pressed");
 
-        info!("LED Off");
-        led.set_low();
-        Timer::after_secs(2).await;
+        button.wait_for_high().await;
+        info!("Button Released");
     }
 }
 
 #[embassy_executor::task]
 async fn handle_encoder(mut encoder: PioEncoder<'static, PIO0, 0>) {
+    let mut count = 0;
     loop {
-        let mut count = 0;
-        loop {
-            info!("Count: {}", count);
-            count += match encoder.read().await {
-                Direction::Clockwise => 1,
-                Direction::CounterClockwise => -1,
-            };
-        }
+        info!("Count: {}", count);
+        count += match encoder.read().await {
+            Direction::Clockwise => 1,
+            Direction::CounterClockwise => -1,
+        };
     }
 }
 
@@ -61,6 +50,8 @@ async fn handle_encoder(mut encoder: PioEncoder<'static, PIO0, 0>) {
 async fn main(spawner: Spawner) {
     info!("Starting...");
     let p = embassy_rp::init(Default::default());
+
+    let button = Input::new(p.PIN_23, Pull::Up);
 
     // PIO and encoder init
     let pio::Pio {
@@ -93,33 +84,6 @@ async fn main(spawner: Spawner) {
     Timer::after_millis(100).await;
     info!("Configured Display");
 
-    // Display text
-    let text_style = MonoTextStyleBuilder::new()
-        .font(&FONT_6X13)
-        .text_color(BinaryColor::On)
-        .build();
-    let hello_text = Text::with_baseline("Hello Rust!", Point::zero(), text_style, Baseline::Top);
-    let pressed_text =
-        Text::with_baseline("Button Pressed", Point::zero(), text_style, Baseline::Top);
-
-    hello_text.draw(&mut display).unwrap();
-    display.flush().await.unwrap();
-
-    spawner.spawn(blink(p.PIN_25.into())).unwrap();
+    spawner.spawn(handle_button(button)).unwrap();
     spawner.spawn(handle_encoder(encoder)).unwrap();
-
-    let mut button = Input::new(p.PIN_23, Pull::Up);
-    loop {
-        button.wait_for_low().await;
-        display.clear_buffer();
-        pressed_text.draw(&mut display).unwrap();
-        display.flush().await.unwrap();
-        info!("Button Pressed");
-
-        button.wait_for_high().await;
-        display.clear_buffer();
-        hello_text.draw(&mut display).unwrap();
-        display.flush().await.unwrap();
-        info!("Button Released");
-    }
 }
