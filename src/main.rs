@@ -58,12 +58,12 @@ async fn main(spawner: Spawner) {
         mut common, sm0, ..
     } = pio::Pio::new(p.PIO0, Irqs);
     let prg = PioEncoderProgram::new(&mut common);
-    let encoder = PioEncoder::new(&mut common, sm0, p.PIN_13, p.PIN_14, &prg);
+    let encoder = PioEncoder::new(&mut common, sm0, p.PIN_10, p.PIN_11, &prg);
     info!("Configured PIO");
 
     // I2C init
-    let sda = p.PIN_16;
-    let scl = p.PIN_17;
+    let sda = p.PIN_12;
+    let scl = p.PIN_13;
     let mut i2c_config = i2c::Config::default();
     i2c_config.frequency = 400_000;
     i2c_config.sda_pullup = false;
@@ -80,9 +80,17 @@ async fn main(spawner: Spawner) {
     )
     .into_buffered_graphics_mode();
     display.init().await.unwrap();
-    display.set_display_on(true).await.unwrap();
     Timer::after_millis(100).await;
     info!("Configured Display");
+
+    let text_style = MonoTextStyleBuilder::new()
+        .font(&FONT_6X13)
+        .text_color(BinaryColor::On)
+        .build();
+    Text::with_baseline("Hello, World!", Point::zero(), text_style, Baseline::Top)
+        .draw(&mut display)
+        .unwrap();
+    display.flush().await.unwrap();
 
     spawner.spawn(handle_button(button)).unwrap();
     spawner.spawn(handle_encoder(encoder)).unwrap();
