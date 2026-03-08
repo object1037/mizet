@@ -549,7 +549,7 @@
       "plot": "",
       "pos_files": "",
       "specctra_dsn": "",
-      "step": "",
+      "step": "mizet.step",
       "svg": "",
       "vrml": ""
     },
