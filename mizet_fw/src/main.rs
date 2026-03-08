@@ -15,6 +15,7 @@ use embedded_graphics::{
     text::{Baseline, Text},
 };
 use gpio::{Input, Pull};
+use ssd1306::mode::BufferedGraphicsModeAsync;
 use ssd1306::{I2CDisplayInterface, Ssd1306Async, prelude::*};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -46,24 +47,46 @@ async fn handle_encoder(mut encoder: PioEncoder<'static, PIO0, 0>) {
     }
 }
 
+#[embassy_executor::task]
+async fn handle_display(
+    mut display: Ssd1306Async<
+        I2CInterface<i2c::I2c<'static, I2C0, i2c::Async>>,
+        DisplaySize128x64,
+        BufferedGraphicsModeAsync<DisplaySize128x64>,
+    >,
+) {
+    let text_style = MonoTextStyleBuilder::new()
+        .font(&FONT_6X13)
+        .text_color(BinaryColor::On)
+        .build();
+    Text::with_baseline("Hello, Rust!", Point::zero(), text_style, Baseline::Top)
+        .draw(&mut display)
+        .unwrap();
+    display.flush().await.unwrap();
+
+    // loop {}
+}
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     info!("Starting...");
     let p = embassy_rp::init(Default::default());
 
     let button = Input::new(p.PIN_23, Pull::Up);
+    let encoder_a = p.PIN_10;
+    let encoder_b = p.PIN_11;
+    let sda = p.PIN_12;
+    let scl = p.PIN_13;
 
     // PIO and encoder init
     let pio::Pio {
         mut common, sm0, ..
     } = pio::Pio::new(p.PIO0, Irqs);
     let prg = PioEncoderProgram::new(&mut common);
-    let encoder = PioEncoder::new(&mut common, sm0, p.PIN_10, p.PIN_11, &prg);
+    let encoder = PioEncoder::new(&mut common, sm0, encoder_a, encoder_b, &prg);
     info!("Configured PIO");
 
     // I2C init
-    let sda = p.PIN_12;
-    let scl = p.PIN_13;
     let mut i2c_config = i2c::Config::default();
     i2c_config.frequency = 400_000;
     i2c_config.sda_pullup = false;
@@ -83,15 +106,7 @@ async fn main(spawner: Spawner) {
     Timer::after_millis(100).await;
     info!("Configured Display");
 
-    let text_style = MonoTextStyleBuilder::new()
-        .font(&FONT_6X13)
-        .text_color(BinaryColor::On)
-        .build();
-    Text::with_baseline("Hello, World!", Point::zero(), text_style, Baseline::Top)
-        .draw(&mut display)
-        .unwrap();
-    display.flush().await.unwrap();
-
     spawner.spawn(handle_button(button)).unwrap();
     spawner.spawn(handle_encoder(encoder)).unwrap();
+    spawner.spawn(handle_display(display)).unwrap();
 }
