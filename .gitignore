@@ -1,1 +1,6 @@
-/target
+~*
+.DS_Store
+\#auto_saved_files#
+hardware/mizet-backups
+hardware/fp-info-cache
+target
