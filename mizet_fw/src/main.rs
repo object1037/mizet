@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+mod button;
 mod display;
 mod encoder;
 mod shared;
@@ -12,6 +13,7 @@ use embassy_rp::peripherals::{I2C0, PIO0};
 use embassy_rp::pio_programs::rotary_encoder::{PioEncoder, PioEncoderProgram};
 use embassy_rp::{gpio, i2c, pio};
 use gpio::{Input, Pull};
+use shared::Button;
 use ssd1306::{I2CDisplayInterface, Ssd1306Async, prelude::*};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -20,25 +22,21 @@ bind_interrupts!(struct Irqs {
    I2C0_IRQ => i2c::InterruptHandler<I2C0>;
 });
 
-#[embassy_executor::task]
-async fn handle_button(mut button: Input<'static>) {
-    loop {
-        button.wait_for_low().await;
-        info!("Button Pressed");
-
-        button.wait_for_high().await;
-        info!("Button Released");
-    }
-}
-
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     info!("Starting...");
     let p = embassy_rp::init(Default::default());
 
-    let button = Input::new(p.PIN_23, Pull::Up);
-    let encoder_a = p.PIN_10;
-    let encoder_b = p.PIN_11;
+    // let button_a = Input::new(p.PIN_23, Pull::Up);
+    let button_a = Input::new(p.PIN_29, Pull::Up);
+    let button_b = Input::new(p.PIN_28, Pull::Up);
+    let button_c = Input::new(p.PIN_27, Pull::Up);
+    let button_mode = Input::new(p.PIN_17, Pull::Up);
+    let encoder_sw = Input::new(p.PIN_16, Pull::Up);
+
+    let encoder_a = p.PIN_14;
+    let encoder_b = p.PIN_15;
+
     let sda = p.PIN_12;
     let scl = p.PIN_13;
 
@@ -67,7 +65,21 @@ async fn main(spawner: Spawner) {
     )
     .into_buffered_graphics_mode();
 
-    spawner.spawn(handle_button(button)).unwrap();
+    spawner
+        .spawn(button::button_task(button_a, Button::A))
+        .unwrap();
+    spawner
+        .spawn(button::button_task(button_b, Button::B))
+        .unwrap();
+    spawner
+        .spawn(button::button_task(button_c, Button::C))
+        .unwrap();
+    spawner
+        .spawn(button::button_task(button_mode, Button::Mode))
+        .unwrap();
+    spawner
+        .spawn(button::button_task(encoder_sw, Button::Encoder))
+        .unwrap();
     spawner.spawn(encoder::encoder_task(encoder)).unwrap();
     spawner.spawn(display::display_task(display)).unwrap();
 }
