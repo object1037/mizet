@@ -64,8 +64,8 @@ async fn handle_encoder(mut encoder: PioEncoder<'static, PIO0, 0>) {
 async fn handle_display(
     mut display: Ssd1306Async<
         I2CInterface<i2c::I2c<'static, I2C0, i2c::Async>>,
-        DisplaySize128x64,
-        BufferedGraphicsModeAsync<DisplaySize128x64>,
+        DisplaySize128x32,
+        BufferedGraphicsModeAsync<DisplaySize128x32>,
     >,
 ) {
     let text_style = MonoTextStyleBuilder::new()
@@ -111,8 +111,8 @@ async fn main(spawner: Spawner) {
     let display_interface = I2CDisplayInterface::new(i2c_bus);
     let mut display = Ssd1306Async::new(
         display_interface,
-        DisplaySize128x64,
-        DisplayRotation::Rotate0,
+        DisplaySize128x32,
+        DisplayRotation::Rotate180,
     )
     .into_buffered_graphics_mode();
     display.init().await.unwrap();
