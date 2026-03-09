@@ -1,12 +1,15 @@
+use crate::shared::EVENT_CH;
+
 use defmt::*;
 use embassy_rp::i2c;
 use embassy_rp::peripherals::I2C0;
 use embassy_time::Timer;
 use embedded_graphics::{
     image::{Image, ImageRaw},
-    mono_font::{MonoTextStyleBuilder, ascii::FONT_6X13},
+    mono_font::{MonoTextStyleBuilder, ascii::FONT_5X8},
     pixelcolor::BinaryColor,
     prelude::*,
+    primitives::{PrimitiveStyleBuilder, Rectangle},
     text::{Baseline, Text},
 };
 use ssd1306::mode::BufferedGraphicsModeAsync;
@@ -74,6 +77,36 @@ where
     Ok(())
 }
 
+fn draw_ui<D>(display: &mut D) -> Result<(), D::Error>
+where
+    D: DrawTarget<Color = BinaryColor>,
+{
+    let border = PrimitiveStyleBuilder::new()
+        .stroke_color(BinaryColor::On)
+        .stroke_width(1)
+        .build();
+    let text_style = MonoTextStyleBuilder::new()
+        .font(&FONT_5X8)
+        .text_color(BinaryColor::On)
+        .build();
+
+    Rectangle::new(Point::new(-1, -1), Size::new(25, 12))
+        .into_styled(border)
+        .draw(display)?;
+    Rectangle::new(Point::new(-1, 10), Size::new(25, 12))
+        .into_styled(border)
+        .draw(display)?;
+    Rectangle::new(Point::new(-1, 21), Size::new(25, 12))
+        .into_styled(border)
+        .draw(display)?;
+
+    Text::with_baseline("Ctrl", Point::new(1, 1), text_style, Baseline::Top).draw(display)?;
+    Text::with_baseline("Alt", Point::new(1, 12), text_style, Baseline::Top).draw(display)?;
+    Text::with_baseline("Shft", Point::new(1, 23), text_style, Baseline::Top).draw(display)?;
+
+    Ok(())
+}
+
 #[embassy_executor::task]
 pub async fn display_task(
     mut display: Ssd1306Async<
@@ -88,6 +121,14 @@ pub async fn display_task(
 
     draw_logo(&mut display).unwrap();
 
+    Timer::after_millis(500).await;
+    display.clear(BinaryColor::Off).unwrap();
+    draw_ui(&mut display).unwrap();
+
     display.flush().await.unwrap();
-    // loop {}
+
+    loop {
+        let event = EVENT_CH.receive().await;
+        info!("Received event");
+    }
 }

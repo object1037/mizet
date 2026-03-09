@@ -2,6 +2,7 @@
 #![no_main]
 
 mod display;
+mod shared;
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -17,19 +18,6 @@ bind_interrupts!(struct Irqs {
    PIO0_IRQ_0 => pio::InterruptHandler<PIO0>;
    I2C0_IRQ => i2c::InterruptHandler<I2C0>;
 });
-
-enum Button {
-    A,
-    B,
-    C,
-    Mode,
-}
-
-enum UiEvent {
-    ButtonPress(Button),
-    Rotary(Direction),
-    EncoderPush,
-}
 
 #[embassy_executor::task]
 async fn handle_button(mut button: Input<'static>) {
