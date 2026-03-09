@@ -122,7 +122,7 @@ pub async fn display_task(
     draw_logo(&mut display).unwrap();
     display.flush().await.unwrap();
 
-    Timer::after_millis(1000).await;
+    Timer::after_millis(2000).await;
     display.clear(BinaryColor::Off).unwrap();
     draw_ui(&mut display).unwrap();
     display.flush().await.unwrap();
