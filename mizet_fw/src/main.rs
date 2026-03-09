@@ -2,13 +2,14 @@
 #![no_main]
 
 mod display;
+mod encoder;
 mod shared;
 
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::{I2C0, PIO0};
-use embassy_rp::pio_programs::rotary_encoder::{Direction, PioEncoder, PioEncoderProgram};
+use embassy_rp::pio_programs::rotary_encoder::{PioEncoder, PioEncoderProgram};
 use embassy_rp::{gpio, i2c, pio};
 use gpio::{Input, Pull};
 use ssd1306::{I2CDisplayInterface, Ssd1306Async, prelude::*};
@@ -27,18 +28,6 @@ async fn handle_button(mut button: Input<'static>) {
 
         button.wait_for_high().await;
         info!("Button Released");
-    }
-}
-
-#[embassy_executor::task]
-async fn handle_encoder(mut encoder: PioEncoder<'static, PIO0, 0>) {
-    let mut count = 0;
-    loop {
-        info!("Count: {}", count);
-        count += match encoder.read().await {
-            Direction::Clockwise => 1,
-            Direction::CounterClockwise => -1,
-        };
     }
 }
 
@@ -79,6 +68,6 @@ async fn main(spawner: Spawner) {
     .into_buffered_graphics_mode();
 
     spawner.spawn(handle_button(button)).unwrap();
-    spawner.spawn(handle_encoder(encoder)).unwrap();
+    spawner.spawn(encoder::encoder_task(encoder)).unwrap();
     spawner.spawn(display::display_task(display)).unwrap();
 }
