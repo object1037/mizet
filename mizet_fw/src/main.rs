@@ -24,6 +24,19 @@ bind_interrupts!(struct Irqs {
    I2C0_IRQ => i2c::InterruptHandler<I2C0>;
 });
 
+enum Button {
+    A,
+    B,
+    C,
+    Mode,
+}
+
+enum UiEvent {
+    ButtonPress(Button),
+    Rotary(Direction),
+    EncoderPush,
+}
+
 #[embassy_executor::task]
 async fn handle_button(mut button: Input<'static>) {
     loop {
