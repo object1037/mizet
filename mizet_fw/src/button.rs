@@ -30,6 +30,12 @@ pub async fn button_task(mut button_input: Input<'static>, button_type: Button) 
             // Short press button D: Toggle mode.
             let new_mode = !IS_KEYBOARD_MODE.load(Ordering::Relaxed);
             IS_KEYBOARD_MODE.store(new_mode, Ordering::Relaxed);
+
+            // Release other buttons to prevent stuck state in the new mode.
+            EVENT_CH.send(UiEvent::ButtonRelease(Button::A)).await;
+            EVENT_CH.send(UiEvent::ButtonRelease(Button::B)).await;
+            EVENT_CH.send(UiEvent::ButtonRelease(Button::C)).await;
+            EVENT_CH.send(UiEvent::ButtonRelease(Button::Encoder)).await;
             EVENT_CH.send(UiEvent::ModeToggle).await;
             continue;
         }

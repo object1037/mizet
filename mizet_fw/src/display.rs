@@ -1,11 +1,12 @@
 use core::sync::atomic::Ordering;
 
-use crate::shared::UiEvent;
+use crate::shared::{Button, UiEvent};
 use crate::{IS_KEYBOARD_MODE, shared::EVENT_CH};
 
 use defmt::*;
 use embassy_rp::i2c;
 use embassy_rp::peripherals::I2C0;
+use embassy_rp::pio_programs::rotary_encoder::Direction;
 use embassy_time::{Duration, Ticker, Timer};
 use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::{
@@ -25,6 +26,37 @@ type MyDisplay = Ssd1306Async<
     DisplaySize128x32,
     BufferedGraphicsModeAsync<DisplaySize128x32>,
 >;
+
+struct UiState {
+    button_a_pressed: bool,
+    button_b_pressed: bool,
+    button_c_pressed: bool,
+    button_d_pressed: bool,
+    encoder_pressed: bool,
+    current_idx: i32,
+}
+
+impl UiState {
+    fn set_state(&mut self, event: UiEvent) {
+        match event {
+            UiEvent::ButtonPress(button) | UiEvent::ButtonRelease(button) => {
+                let pressed = matches!(event, UiEvent::ButtonPress(_));
+                match button {
+                    Button::A => self.button_a_pressed = pressed,
+                    Button::B => self.button_b_pressed = pressed,
+                    Button::C => self.button_c_pressed = pressed,
+                    Button::D => self.button_d_pressed = pressed,
+                    Button::Encoder => self.encoder_pressed = pressed,
+                }
+            }
+            UiEvent::Rotary(direction) => match direction {
+                Direction::Clockwise => self.current_idx += 1,
+                Direction::CounterClockwise => self.current_idx -= 1,
+            },
+            UiEvent::ModeToggle => self.button_d_pressed = false, // Reset button D state on mode toggle to prevent stuck state
+        }
+    }
+}
 
 fn draw_logo<D>(display: &mut D) -> Result<(), D::Error>
 where
@@ -87,20 +119,27 @@ where
     Ok(())
 }
 
-async fn refresh_ui(display: &mut MyDisplay) -> Result<(), <MyDisplay as DrawTarget>::Error> {
+async fn refresh_ui(
+    display: &mut MyDisplay,
+    ui_state: &UiState,
+) -> Result<(), <MyDisplay as DrawTarget>::Error> {
     let is_keyboad_mode = IS_KEYBOARD_MODE.load(Ordering::Relaxed);
 
     display.clear(BinaryColor::Off)?;
     match is_keyboad_mode {
-        true => draw_keyboard_ui(display, 0)?,
-        false => draw_mouse_ui(display)?,
+        true => draw_keyboard_ui(display, ui_state, 0)?,
+        false => draw_mouse_ui(display, ui_state)?,
     }
     display.flush().await?;
 
     Ok(())
 }
 
-fn draw_keyboard_ui<D>(display: &mut D, button_offset: i32) -> Result<(), D::Error>
+fn draw_keyboard_ui<D>(
+    display: &mut D,
+    ui_state: &UiState,
+    button_offset: i32,
+) -> Result<(), D::Error>
 where
     D: DrawTarget<Color = BinaryColor>,
 {
@@ -115,48 +154,100 @@ where
         0b00100_000,
     ];
 
+    const TOTAL_BYTES: usize = 6;
+    fn inv_image_data(data: &[u8]) -> [u8; TOTAL_BYTES] {
+        let mut inv_data = [0u8; TOTAL_BYTES];
+        for (i, byte) in data.iter().enumerate() {
+            inv_data[i] = !byte;
+        }
+        inv_data
+    }
+
     let border = PrimitiveStyleBuilder::new()
         .stroke_color(BinaryColor::On)
         .stroke_width(1)
+        .build();
+    let fill = PrimitiveStyleBuilder::new()
+        .fill_color(BinaryColor::On)
         .build();
     let text_style = MonoTextStyleBuilder::new()
         .font(&FONT_5X8)
         .text_color(BinaryColor::On)
         .build();
+    let inv_text_style = MonoTextStyleBuilder::new()
+        .font(&FONT_5X8)
+        .text_color(BinaryColor::Off)
+        .build();
 
     Rectangle::new(Point::new(-1, -1), Size::new(20, 12))
-        .into_styled(border)
+        .into_styled(if ui_state.button_a_pressed {
+            fill
+        } else {
+            border
+        })
         .draw(display)?;
     Rectangle::new(Point::new(-1, 10), Size::new(20, 12))
-        .into_styled(border)
+        .into_styled(if ui_state.button_b_pressed {
+            fill
+        } else {
+            border
+        })
         .draw(display)?;
     Rectangle::new(Point::new(-1, 21), Size::new(20, 12))
-        .into_styled(border)
+        .into_styled(if ui_state.button_c_pressed {
+            fill
+        } else {
+            border
+        })
+        .draw(display)?;
+    Rectangle::new(Point::new(18, -1), Size::new(9, 34))
+        .into_styled(if ui_state.button_d_pressed {
+            fill
+        } else {
+            border
+        })
         .draw(display)?;
 
     Text::with_baseline(
         "Ctl",
         Point::new(button_offset + 1, 1),
-        text_style,
+        if ui_state.button_a_pressed {
+            inv_text_style
+        } else {
+            text_style
+        },
         Baseline::Top,
     )
     .draw(display)?;
     Text::with_baseline(
         "Alt",
         Point::new(button_offset + 1, 12),
-        text_style,
+        if ui_state.button_b_pressed {
+            inv_text_style
+        } else {
+            text_style
+        },
         Baseline::Top,
     )
     .draw(display)?;
     Text::with_baseline(
         "Gui",
         Point::new(button_offset + 1, 23),
-        text_style,
+        if ui_state.button_c_pressed {
+            inv_text_style
+        } else {
+            text_style
+        },
         Baseline::Top,
     )
     .draw(display)?;
 
-    let raw_image = ImageRaw::<BinaryColor>::new(ARROW_DATA, 5);
+    let inv_arrow_data = inv_image_data(ARROW_DATA);
+    let raw_image = if ui_state.button_d_pressed {
+        ImageRaw::<BinaryColor>::new(&inv_arrow_data, 5)
+    } else {
+        ImageRaw::<BinaryColor>::new(ARROW_DATA, 5)
+    };
     Image::new(&raw_image, Point::new(20, 13)).draw(display)?;
 
     Line::new(Point::new(26, 0), Point::new(26, 31))
@@ -177,7 +268,7 @@ where
     Ok(())
 }
 
-fn draw_mouse_ui<D>(_display: &mut D) -> Result<(), D::Error>
+fn draw_mouse_ui<D>(_display: &mut D, ui_state: &UiState) -> Result<(), D::Error>
 where
     D: DrawTarget<Color = BinaryColor>,
 {
@@ -187,12 +278,13 @@ where
 
 async fn refresh_initial_ui(
     display: &mut MyDisplay,
+    ui_state: &UiState,
 ) -> Result<(), <MyDisplay as DrawTarget>::Error> {
     let mut ticker = Ticker::every(Duration::from_millis(33));
     for i in 0..6 {
         let button_offset = -20 + i * 4;
         display.clear(BinaryColor::Off)?;
-        draw_keyboard_ui(display, button_offset)?;
+        draw_keyboard_ui(display, ui_state, button_offset)?;
         display.flush().await?;
         ticker.next().await;
     }
@@ -210,18 +302,21 @@ pub async fn display_task(mut display: MyDisplay) {
 
     Timer::after_millis(1500).await;
 
-    refresh_initial_ui(&mut display).await.unwrap();
+    let mut ui_state = UiState {
+        button_a_pressed: false,
+        button_b_pressed: false,
+        button_c_pressed: false,
+        button_d_pressed: false,
+        encoder_pressed: false,
+        current_idx: 0,
+    };
+
+    refresh_initial_ui(&mut display, &ui_state).await.unwrap();
 
     loop {
         let event = EVENT_CH.receive().await;
+        ui_state.set_state(event);
 
-        match event {
-            UiEvent::ButtonPress(button) => info!("UI Event: Button Pressed: {:?}", button),
-            UiEvent::ButtonRelease(button) => info!("UI Event: Button Released: {:?}", button),
-            UiEvent::Rotary(_) => info!("UI Event: Rotation"),
-            UiEvent::ModeToggle => info!("UI Event: Mode Toggled"),
-        }
-
-        refresh_ui(&mut display).await.unwrap();
+        refresh_ui(&mut display, &ui_state).await.unwrap();
     }
 }
