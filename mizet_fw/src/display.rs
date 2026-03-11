@@ -12,7 +12,7 @@ use embedded_graphics::{
     mono_font::{MonoTextStyleBuilder, ascii::FONT_5X8},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{PrimitiveStyleBuilder, Rectangle},
+    primitives::{Line, PrimitiveStyleBuilder, Rectangle},
     text::{Baseline, Text},
 };
 use ssd1306::mode::BufferedGraphicsModeAsync;
@@ -104,6 +104,17 @@ fn draw_keyboard_ui<D>(display: &mut D, button_offset: i32) -> Result<(), D::Err
 where
     D: DrawTarget<Color = BinaryColor>,
 {
+    #[rustfmt::skip]
+    #[allow(clippy::unusual_byte_groupings)]
+    const ARROW_DATA: &[u8] = &[
+        0b00100_000,
+        0b01110_000,
+        0b10101_000,
+        0b00100_000,
+        0b00100_000,
+        0b00100_000,
+    ];
+
     let border = PrimitiveStyleBuilder::new()
         .stroke_color(BinaryColor::On)
         .stroke_width(1)
@@ -113,18 +124,18 @@ where
         .text_color(BinaryColor::On)
         .build();
 
-    Rectangle::new(Point::new(-1, -1), Size::new(25, 12))
+    Rectangle::new(Point::new(-1, -1), Size::new(20, 12))
         .into_styled(border)
         .draw(display)?;
-    Rectangle::new(Point::new(-1, 10), Size::new(25, 12))
+    Rectangle::new(Point::new(-1, 10), Size::new(20, 12))
         .into_styled(border)
         .draw(display)?;
-    Rectangle::new(Point::new(-1, 21), Size::new(25, 12))
+    Rectangle::new(Point::new(-1, 21), Size::new(20, 12))
         .into_styled(border)
         .draw(display)?;
 
     Text::with_baseline(
-        "Ctrl",
+        "Ctl",
         Point::new(button_offset + 1, 1),
         text_style,
         Baseline::Top,
@@ -138,12 +149,30 @@ where
     )
     .draw(display)?;
     Text::with_baseline(
-        "Shft",
+        "Gui",
         Point::new(button_offset + 1, 23),
         text_style,
         Baseline::Top,
     )
     .draw(display)?;
+
+    let raw_image = ImageRaw::<BinaryColor>::new(ARROW_DATA, 5);
+    Image::new(&raw_image, Point::new(20, 13)).draw(display)?;
+
+    Line::new(Point::new(26, 0), Point::new(26, 31))
+        .into_styled(border)
+        .draw(display)?;
+    Line::new(Point::new(46, 1), Point::new(46, 30))
+        .into_styled(border)
+        .draw(display)?;
+
+    Rectangle::new(Point::new(66, 0), Size::new(23, 32))
+        .into_styled(border)
+        .draw(display)?;
+
+    Line::new(Point::new(108, 1), Point::new(108, 30))
+        .into_styled(border)
+        .draw(display)?;
 
     Ok(())
 }
@@ -151,7 +180,7 @@ where
 async fn draw_initial_ui(display: &mut MyDisplay) -> Result<(), <MyDisplay as DrawTarget>::Error> {
     let mut ticker = Ticker::every(Duration::from_millis(33));
     for i in 0..6 {
-        let button_offset = -25 + i * 5;
+        let button_offset = -20 + i * 4;
         display.clear(BinaryColor::Off)?;
         draw_keyboard_ui(display, button_offset)?;
         display.flush().await?;
@@ -169,13 +198,13 @@ pub async fn display_task(mut display: MyDisplay) {
     draw_logo(&mut display).unwrap();
     display.flush().await.unwrap();
 
-    Timer::after_millis(2000).await;
+    Timer::after_millis(1500).await;
 
     draw_initial_ui(&mut display).await.unwrap();
 
     loop {
         let event = EVENT_CH.receive().await;
-        info!("Received event");
+
         draw_ui(&mut display).unwrap();
     }
 }
