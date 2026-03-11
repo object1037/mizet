@@ -1,9 +1,12 @@
-use crate::shared::EVENT_CH;
+use core::sync::atomic::Ordering;
+
+use crate::{IS_KEYBOARD_MODE, shared::EVENT_CH};
 
 use defmt::*;
 use embassy_rp::i2c;
 use embassy_rp::peripherals::I2C0;
-use embassy_time::Timer;
+use embassy_time::{Duration, Ticker, Timer};
+use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::{
     image::{Image, ImageRaw},
     mono_font::{MonoTextStyleBuilder, ascii::FONT_5X8},
@@ -15,6 +18,12 @@ use embedded_graphics::{
 use ssd1306::mode::BufferedGraphicsModeAsync;
 use ssd1306::{Ssd1306Async, prelude::*};
 use {defmt_rtt as _, panic_probe as _};
+
+type MyDisplay = Ssd1306Async<
+    I2CInterface<i2c::I2c<'static, I2C0, i2c::Async>>,
+    DisplaySize128x32,
+    BufferedGraphicsModeAsync<DisplaySize128x32>,
+>;
 
 fn draw_logo<D>(display: &mut D) -> Result<(), D::Error>
 where
@@ -81,6 +90,20 @@ fn draw_ui<D>(display: &mut D) -> Result<(), D::Error>
 where
     D: DrawTarget<Color = BinaryColor>,
 {
+    let is_keyboad_mode = IS_KEYBOARD_MODE.load(Ordering::Relaxed);
+
+    match is_keyboad_mode {
+        true => draw_keyboard_ui(display, 0)?,
+        false => info!("Mouse Mode"),
+    }
+
+    Ok(())
+}
+
+fn draw_keyboard_ui<D>(display: &mut D, button_offset: i32) -> Result<(), D::Error>
+where
+    D: DrawTarget<Color = BinaryColor>,
+{
     let border = PrimitiveStyleBuilder::new()
         .stroke_color(BinaryColor::On)
         .stroke_width(1)
@@ -100,35 +123,59 @@ where
         .into_styled(border)
         .draw(display)?;
 
-    Text::with_baseline("Ctrl", Point::new(1, 1), text_style, Baseline::Top).draw(display)?;
-    Text::with_baseline("Alt", Point::new(1, 12), text_style, Baseline::Top).draw(display)?;
-    Text::with_baseline("Shft", Point::new(1, 23), text_style, Baseline::Top).draw(display)?;
+    Text::with_baseline(
+        "Ctrl",
+        Point::new(button_offset + 1, 1),
+        text_style,
+        Baseline::Top,
+    )
+    .draw(display)?;
+    Text::with_baseline(
+        "Alt",
+        Point::new(button_offset + 1, 12),
+        text_style,
+        Baseline::Top,
+    )
+    .draw(display)?;
+    Text::with_baseline(
+        "Shft",
+        Point::new(button_offset + 1, 23),
+        text_style,
+        Baseline::Top,
+    )
+    .draw(display)?;
+
+    Ok(())
+}
+
+async fn draw_initial_ui(display: &mut MyDisplay) -> Result<(), <MyDisplay as DrawTarget>::Error> {
+    let mut ticker = Ticker::every(Duration::from_millis(33));
+    for i in 0..6 {
+        let button_offset = -25 + i * 5;
+        display.clear(BinaryColor::Off)?;
+        draw_keyboard_ui(display, button_offset)?;
+        display.flush().await?;
+        ticker.next().await;
+    }
 
     Ok(())
 }
 
 #[embassy_executor::task]
-pub async fn display_task(
-    mut display: Ssd1306Async<
-        I2CInterface<i2c::I2c<'static, I2C0, i2c::Async>>,
-        DisplaySize128x32,
-        BufferedGraphicsModeAsync<DisplaySize128x32>,
-    >,
-) {
+pub async fn display_task(mut display: MyDisplay) {
     display.init().await.unwrap();
-    Timer::after_millis(100).await;
     info!("Configured Display");
 
     draw_logo(&mut display).unwrap();
     display.flush().await.unwrap();
 
     Timer::after_millis(2000).await;
-    display.clear(BinaryColor::Off).unwrap();
-    draw_ui(&mut display).unwrap();
-    display.flush().await.unwrap();
+
+    draw_initial_ui(&mut display).await.unwrap();
 
     loop {
         let event = EVENT_CH.receive().await;
         info!("Received event");
+        draw_ui(&mut display).unwrap();
     }
 }
