@@ -8,7 +8,7 @@ pub enum Button {
     A,
     B,
     C,
-    Mode,
+    D,
     Encoder,
 }
 
@@ -16,6 +16,7 @@ pub enum UiEvent {
     ButtonPress(Button),
     ButtonRelease(Button),
     Rotary(Direction),
+    ModeToggle,
 }
 
 pub static EVENT_CH: Channel<CriticalSectionRawMutex, UiEvent, 10> = Channel::new();

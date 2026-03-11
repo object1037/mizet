@@ -1,5 +1,6 @@
 use core::sync::atomic::Ordering;
 
+use crate::shared::UiEvent;
 use crate::{IS_KEYBOARD_MODE, shared::EVENT_CH};
 
 use defmt::*;
@@ -86,16 +87,15 @@ where
     Ok(())
 }
 
-fn draw_ui<D>(display: &mut D) -> Result<(), D::Error>
-where
-    D: DrawTarget<Color = BinaryColor>,
-{
+async fn refresh_ui(display: &mut MyDisplay) -> Result<(), <MyDisplay as DrawTarget>::Error> {
     let is_keyboad_mode = IS_KEYBOARD_MODE.load(Ordering::Relaxed);
 
+    display.clear(BinaryColor::Off)?;
     match is_keyboad_mode {
         true => draw_keyboard_ui(display, 0)?,
-        false => info!("Mouse Mode"),
+        false => draw_mouse_ui(display)?,
     }
+    display.flush().await?;
 
     Ok(())
 }
@@ -177,7 +177,17 @@ where
     Ok(())
 }
 
-async fn draw_initial_ui(display: &mut MyDisplay) -> Result<(), <MyDisplay as DrawTarget>::Error> {
+fn draw_mouse_ui<D>(_display: &mut D) -> Result<(), D::Error>
+where
+    D: DrawTarget<Color = BinaryColor>,
+{
+    // Placeholder for mouse mode UI
+    Ok(())
+}
+
+async fn refresh_initial_ui(
+    display: &mut MyDisplay,
+) -> Result<(), <MyDisplay as DrawTarget>::Error> {
     let mut ticker = Ticker::every(Duration::from_millis(33));
     for i in 0..6 {
         let button_offset = -20 + i * 4;
@@ -200,11 +210,18 @@ pub async fn display_task(mut display: MyDisplay) {
 
     Timer::after_millis(1500).await;
 
-    draw_initial_ui(&mut display).await.unwrap();
+    refresh_initial_ui(&mut display).await.unwrap();
 
     loop {
         let event = EVENT_CH.receive().await;
 
-        draw_ui(&mut display).unwrap();
+        match event {
+            UiEvent::ButtonPress(button) => info!("UI Event: Button Pressed: {:?}", button),
+            UiEvent::ButtonRelease(button) => info!("UI Event: Button Released: {:?}", button),
+            UiEvent::Rotary(_) => info!("UI Event: Rotation"),
+            UiEvent::ModeToggle => info!("UI Event: Mode Toggled"),
+        }
+
+        refresh_ui(&mut display).await.unwrap();
     }
 }

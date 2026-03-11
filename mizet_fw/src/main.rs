@@ -35,7 +35,7 @@ async fn main(spawner: Spawner) {
     let button_a = Input::new(p.PIN_29, Pull::Up);
     let button_b = Input::new(p.PIN_28, Pull::Up);
     let button_c = Input::new(p.PIN_27, Pull::Up);
-    let button_mode = Input::new(p.PIN_17, Pull::Up);
+    let button_d = Input::new(p.PIN_17, Pull::Up);
     let encoder_sw = Input::new(p.PIN_16, Pull::Up);
 
     let encoder_a = p.PIN_14;
@@ -79,7 +79,7 @@ async fn main(spawner: Spawner) {
         .spawn(button::button_task(button_c, Button::C))
         .unwrap();
     spawner
-        .spawn(button::button_task(button_mode, Button::Mode))
+        .spawn(button::button_task(button_d, Button::D))
         .unwrap();
     spawner
         .spawn(button::button_task(encoder_sw, Button::Encoder))
