@@ -25,4 +25,10 @@ pub enum UiEvent {
     ModeToggle,
 }
 
-pub static EVENT_CH: PubSubChannel<CriticalSectionRawMutex, UiEvent, 10, 2, 6> = PubSubChannel::<CriticalSectionRawMutex, UiEvent, 10, 2, 6>::new();
+pub enum Mode {
+    Keyboard,
+    Mouse,
+}
+
+pub static EVENT_CH: PubSubChannel<CriticalSectionRawMutex, UiEvent, 10, 2, 6> =
+    PubSubChannel::<CriticalSectionRawMutex, UiEvent, 10, 2, 6>::new();

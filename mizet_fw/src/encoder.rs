@@ -10,10 +10,13 @@ pub async fn encoder_task(mut encoder: PioEncoder<'static, PIO0, 0>) {
     loop {
         match encoder.read().await {
             Direction::Clockwise => {
-                publisher.publish(UiEvent::Rotary(crate::shared::Direction::Clockwise)).await;
+                publisher
+                    .publish(UiEvent::Rotary(crate::shared::Direction::Clockwise))
+                    .await;
             }
             Direction::CounterClockwise => {
-                publisher.publish(UiEvent::Rotary(crate::shared::Direction::CounterClockwise))
+                publisher
+                    .publish(UiEvent::Rotary(crate::shared::Direction::CounterClockwise))
                     .await;
             }
         };

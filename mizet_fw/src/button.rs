@@ -1,9 +1,4 @@
-use core::sync::atomic::Ordering;
-
-use crate::{
-    IS_KEYBOARD_MODE,
-    shared::{Button, EVENT_CH, UiEvent},
-};
+use crate::shared::{Button, EVENT_CH, UiEvent};
 
 use defmt::*;
 use embassy_rp::gpio::Input;
@@ -29,14 +24,6 @@ pub async fn button_task(mut button_input: Input<'static>, button_type: Button) 
             && press_duration.as_millis() < 250
         {
             // Short press button D: Toggle mode.
-            let new_mode = !IS_KEYBOARD_MODE.load(Ordering::Relaxed);
-            IS_KEYBOARD_MODE.store(new_mode, Ordering::Relaxed);
-
-            // Release other buttons to prevent stuck state in the new mode.
-            publisher.publish(UiEvent::ButtonRelease(Button::A)).await;
-            publisher.publish(UiEvent::ButtonRelease(Button::B)).await;
-            publisher.publish(UiEvent::ButtonRelease(Button::C)).await;
-            publisher.publish(UiEvent::ButtonRelease(Button::Encoder)).await;
             publisher.publish(UiEvent::ModeToggle).await;
             continue;
         }

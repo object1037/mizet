@@ -1,7 +1,4 @@
-use core::sync::atomic::Ordering;
-
-use crate::shared::{Button, UiEvent, Direction};
-use crate::{IS_KEYBOARD_MODE, shared::EVENT_CH};
+use crate::shared::{Button, Direction, EVENT_CH, Mode, UiEvent};
 
 use defmt::*;
 use embassy_rp::i2c;
@@ -33,6 +30,7 @@ struct UiState {
     button_d_pressed: bool,
     encoder_pressed: bool,
     current_idx: i32,
+    mode: Mode,
 }
 
 impl UiState {
@@ -52,7 +50,17 @@ impl UiState {
                 Direction::Clockwise => self.current_idx += 1,
                 Direction::CounterClockwise => self.current_idx -= 1,
             },
-            UiEvent::ModeToggle => self.button_d_pressed = false, // Reset button D state on mode toggle to prevent stuck state
+            UiEvent::ModeToggle => {
+                self.mode = match self.mode {
+                    Mode::Keyboard => Mode::Mouse,
+                    Mode::Mouse => Mode::Keyboard,
+                };
+                self.button_a_pressed = false;
+                self.button_b_pressed = false;
+                self.button_c_pressed = false;
+                self.button_d_pressed = false;
+                self.encoder_pressed = false;
+            }
         }
     }
 }
@@ -122,12 +130,10 @@ async fn refresh_ui(
     display: &mut MyDisplay,
     ui_state: &UiState,
 ) -> Result<(), <MyDisplay as DrawTarget>::Error> {
-    let is_keyboad_mode = IS_KEYBOARD_MODE.load(Ordering::Relaxed);
-
     display.clear(BinaryColor::Off)?;
-    match is_keyboad_mode {
-        true => draw_keyboard_ui(display, ui_state, 0)?,
-        false => draw_mouse_ui(display, ui_state)?,
+    match ui_state.mode {
+        Mode::Keyboard => draw_keyboard_ui(display, ui_state, 0)?,
+        Mode::Mouse => draw_mouse_ui(display, ui_state)?,
     }
     display.flush().await?;
 
@@ -308,6 +314,7 @@ pub async fn display_task(mut display: MyDisplay) {
         button_d_pressed: false,
         encoder_pressed: false,
         current_idx: 0,
+        mode: Mode::Keyboard,
     };
 
     refresh_initial_ui(&mut display, &ui_state).await.unwrap();

@@ -6,8 +6,6 @@ mod display;
 mod encoder;
 mod shared;
 
-use core::sync::atomic::AtomicBool;
-
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
@@ -23,8 +21,6 @@ bind_interrupts!(struct Irqs {
    PIO0_IRQ_0 => pio::InterruptHandler<PIO0>;
    I2C0_IRQ => i2c::InterruptHandler<I2C0>;
 });
-
-static IS_KEYBOARD_MODE: AtomicBool = AtomicBool::new(true);
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
