@@ -1,7 +1,6 @@
 use defmt::Format;
-use embassy_rp::pio_programs::rotary_encoder::Direction;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::channel::Channel;
+use embassy_sync::pubsub::PubSubChannel;
 
 #[derive(Format, Clone, Copy)]
 pub enum Button {
@@ -12,6 +11,13 @@ pub enum Button {
     Encoder,
 }
 
+#[derive(Clone)]
+pub enum Direction {
+    Clockwise,
+    CounterClockwise,
+}
+
+#[derive(Clone)]
 pub enum UiEvent {
     ButtonPress(Button),
     ButtonRelease(Button),
@@ -19,4 +25,4 @@ pub enum UiEvent {
     ModeToggle,
 }
 
-pub static EVENT_CH: Channel<CriticalSectionRawMutex, UiEvent, 10> = Channel::new();
+pub static EVENT_CH: PubSubChannel<CriticalSectionRawMutex, UiEvent, 10, 2, 6> = PubSubChannel::<CriticalSectionRawMutex, UiEvent, 10, 2, 6>::new();

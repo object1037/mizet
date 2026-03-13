@@ -13,11 +13,12 @@ use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task(pool_size = 5)]
 pub async fn button_task(mut button_input: Input<'static>, button_type: Button) {
+    let publisher = EVENT_CH.publisher().unwrap();
     loop {
         button_input.wait_for_low().await;
         let start_time = Instant::now();
 
-        EVENT_CH.send(UiEvent::ButtonPress(button_type)).await;
+        publisher.publish(UiEvent::ButtonPress(button_type)).await;
         info!("Button Pressed: {:?}", button_type);
 
         button_input.wait_for_high().await;
@@ -32,15 +33,15 @@ pub async fn button_task(mut button_input: Input<'static>, button_type: Button) 
             IS_KEYBOARD_MODE.store(new_mode, Ordering::Relaxed);
 
             // Release other buttons to prevent stuck state in the new mode.
-            EVENT_CH.send(UiEvent::ButtonRelease(Button::A)).await;
-            EVENT_CH.send(UiEvent::ButtonRelease(Button::B)).await;
-            EVENT_CH.send(UiEvent::ButtonRelease(Button::C)).await;
-            EVENT_CH.send(UiEvent::ButtonRelease(Button::Encoder)).await;
-            EVENT_CH.send(UiEvent::ModeToggle).await;
+            publisher.publish(UiEvent::ButtonRelease(Button::A)).await;
+            publisher.publish(UiEvent::ButtonRelease(Button::B)).await;
+            publisher.publish(UiEvent::ButtonRelease(Button::C)).await;
+            publisher.publish(UiEvent::ButtonRelease(Button::Encoder)).await;
+            publisher.publish(UiEvent::ModeToggle).await;
             continue;
         }
 
-        EVENT_CH.send(UiEvent::ButtonRelease(button_type)).await;
+        publisher.publish(UiEvent::ButtonRelease(button_type)).await;
         info!(
             "Button Released: {:?}. Duration: {:?} ms",
             button_type,

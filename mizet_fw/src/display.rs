@@ -1,12 +1,11 @@
 use core::sync::atomic::Ordering;
 
-use crate::shared::{Button, UiEvent};
+use crate::shared::{Button, UiEvent, Direction};
 use crate::{IS_KEYBOARD_MODE, shared::EVENT_CH};
 
 use defmt::*;
 use embassy_rp::i2c;
 use embassy_rp::peripherals::I2C0;
-use embassy_rp::pio_programs::rotary_encoder::Direction;
 use embassy_time::{Duration, Ticker, Timer};
 use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::{
@@ -313,8 +312,10 @@ pub async fn display_task(mut display: MyDisplay) {
 
     refresh_initial_ui(&mut display, &ui_state).await.unwrap();
 
+    let mut subscriber = EVENT_CH.subscriber().unwrap();
+
     loop {
-        let event = EVENT_CH.receive().await;
+        let event = subscriber.next_message_pure().await;
         ui_state.set_state(event);
 
         refresh_ui(&mut display, &ui_state).await.unwrap();

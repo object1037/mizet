@@ -6,14 +6,14 @@ use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
 pub async fn encoder_task(mut encoder: PioEncoder<'static, PIO0, 0>) {
+    let publisher = EVENT_CH.publisher().unwrap();
     loop {
         match encoder.read().await {
             Direction::Clockwise => {
-                EVENT_CH.send(UiEvent::Rotary(Direction::Clockwise)).await;
+                publisher.publish(UiEvent::Rotary(crate::shared::Direction::Clockwise)).await;
             }
             Direction::CounterClockwise => {
-                EVENT_CH
-                    .send(UiEvent::Rotary(Direction::CounterClockwise))
+                publisher.publish(UiEvent::Rotary(crate::shared::Direction::CounterClockwise))
                     .await;
             }
         };
