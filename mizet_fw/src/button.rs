@@ -1,4 +1,6 @@
-use crate::shared::{Button, EVENT_CH, UiEvent};
+use core::sync::atomic::Ordering;
+
+use crate::shared::{Button, EVENT_CH, IS_KEYBOARD_MODE, UiEvent};
 
 use defmt::*;
 use embassy_rp::gpio::Input;
@@ -24,6 +26,8 @@ pub async fn button_task(mut button_input: Input<'static>, button_type: Button) 
             && press_duration.as_millis() < 250
         {
             // Short press button D: Toggle mode.
+            let is_keyboard_mode = IS_KEYBOARD_MODE.load(Ordering::Relaxed);
+            IS_KEYBOARD_MODE.store(!is_keyboard_mode, Ordering::Relaxed);
             publisher.publish(UiEvent::ModeToggle).await;
             continue;
         }

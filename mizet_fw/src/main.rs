@@ -4,7 +4,9 @@
 mod button;
 mod display;
 mod encoder;
+mod keymap;
 mod shared;
+mod usb;
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -82,4 +84,5 @@ async fn main(spawner: Spawner) {
         .unwrap();
     spawner.spawn(encoder::encoder_task(encoder)).unwrap();
     spawner.spawn(display::display_task(display)).unwrap();
+    spawner.spawn(usb::usb_task()).unwrap();
 }

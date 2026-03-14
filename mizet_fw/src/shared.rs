@@ -1,3 +1,5 @@
+use core::sync::atomic::{AtomicBool, AtomicUsize};
+
 use defmt::Format;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::pubsub::PubSubChannel;
@@ -25,10 +27,8 @@ pub enum UiEvent {
     ModeToggle,
 }
 
-pub enum Mode {
-    Keyboard,
-    Mouse,
-}
-
 pub static EVENT_CH: PubSubChannel<CriticalSectionRawMutex, UiEvent, 10, 2, 6> =
     PubSubChannel::<CriticalSectionRawMutex, UiEvent, 10, 2, 6>::new();
+
+pub static IS_KEYBOARD_MODE: AtomicBool = AtomicBool::new(true);
+pub static CURRENT_INDEX: AtomicUsize = AtomicUsize::new(0);

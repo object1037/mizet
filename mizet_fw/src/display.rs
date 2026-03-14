@@ -1,10 +1,14 @@
-use crate::shared::{Button, Direction, EVENT_CH, Mode, UiEvent};
+use core::sync::atomic::Ordering;
+
+use crate::keymap::{KEYMAP, get_next_idx, get_prev_idx};
+use crate::shared::{Button, CURRENT_INDEX, EVENT_CH, IS_KEYBOARD_MODE, UiEvent};
 
 use defmt::*;
 use embassy_rp::i2c;
 use embassy_rp::peripherals::I2C0;
 use embassy_time::{Duration, Ticker, Timer};
 use embedded_graphics::draw_target::DrawTarget;
+use embedded_graphics::mono_font::ascii::FONT_6X12;
 use embedded_graphics::{
     image::{Image, ImageRaw},
     mono_font::{MonoTextStyleBuilder, ascii::FONT_5X8},
@@ -29,8 +33,6 @@ struct UiState {
     button_c_pressed: bool,
     button_d_pressed: bool,
     encoder_pressed: bool,
-    current_idx: i32,
-    mode: Mode,
 }
 
 impl UiState {
@@ -46,21 +48,15 @@ impl UiState {
                     Button::Encoder => self.encoder_pressed = pressed,
                 }
             }
-            UiEvent::Rotary(direction) => match direction {
-                Direction::Clockwise => self.current_idx += 1,
-                Direction::CounterClockwise => self.current_idx -= 1,
-            },
             UiEvent::ModeToggle => {
-                self.mode = match self.mode {
-                    Mode::Keyboard => Mode::Mouse,
-                    Mode::Mouse => Mode::Keyboard,
-                };
+                // Release all buttons
                 self.button_a_pressed = false;
                 self.button_b_pressed = false;
                 self.button_c_pressed = false;
                 self.button_d_pressed = false;
                 self.encoder_pressed = false;
             }
+            _ => {}
         }
     }
 }
@@ -131,11 +127,55 @@ async fn refresh_ui(
     ui_state: &UiState,
 ) -> Result<(), <MyDisplay as DrawTarget>::Error> {
     display.clear(BinaryColor::Off)?;
-    match ui_state.mode {
-        Mode::Keyboard => draw_keyboard_ui(display, ui_state, 0)?,
-        Mode::Mouse => draw_mouse_ui(display, ui_state)?,
+    match IS_KEYBOARD_MODE.load(Ordering::Relaxed) {
+        true => draw_keyboard_ui(display, ui_state, 0)?,
+        false => draw_mouse_ui(display, ui_state)?,
     }
     display.flush().await?;
+
+    Ok(())
+}
+
+fn draw_key<D>(display: &mut D, index: usize, x: i32, color: BinaryColor) -> Result<(), D::Error>
+where
+    D: DrawTarget<Color = BinaryColor>,
+{
+    let text_style = MonoTextStyleBuilder::new()
+        .font(&FONT_6X12)
+        .text_color(color)
+        .build();
+
+    let y_top = if KEYMAP[index].middle_key.is_some() {
+        0
+    } else {
+        2
+    };
+    let y_bottom = if KEYMAP[index].middle_key.is_some() {
+        20
+    } else {
+        18
+    };
+
+    Text::with_baseline(
+        KEYMAP[index].shifted_key,
+        Point::new(x, y_top),
+        text_style,
+        Baseline::Top,
+    )
+    .draw(display)?;
+
+    if let Some(middle_key) = KEYMAP[index].middle_key {
+        Text::with_baseline(middle_key, Point::new(x, 10), text_style, Baseline::Top)
+            .draw(display)?;
+    }
+
+    Text::with_baseline(
+        KEYMAP[index].key,
+        Point::new(x, y_bottom),
+        text_style,
+        Baseline::Top,
+    )
+    .draw(display)?;
 
     Ok(())
 }
@@ -263,12 +303,37 @@ where
         .draw(display)?;
 
     Rectangle::new(Point::new(66, 0), Size::new(23, 32))
-        .into_styled(border)
+        .into_styled(if ui_state.encoder_pressed {
+            fill
+        } else {
+            border
+        })
         .draw(display)?;
 
     Line::new(Point::new(108, 1), Point::new(108, 30))
         .into_styled(border)
         .draw(display)?;
+
+    let current_index = CURRENT_INDEX.load(Ordering::Relaxed);
+    let prev1_index = get_prev_idx(current_index);
+    let prev2_index = get_prev_idx(prev1_index);
+    let next1_index = get_next_idx(current_index);
+    let next2_index = get_next_idx(next1_index);
+
+    draw_key(display, prev2_index, 34, BinaryColor::On)?;
+    draw_key(display, prev1_index, 54, BinaryColor::On)?;
+    draw_key(
+        display,
+        current_index,
+        75,
+        if ui_state.encoder_pressed {
+            BinaryColor::Off
+        } else {
+            BinaryColor::On
+        },
+    )?;
+    draw_key(display, next1_index, 96, BinaryColor::On)?;
+    draw_key(display, next2_index, 116, BinaryColor::On)?;
 
     Ok(())
 }
@@ -313,8 +378,6 @@ pub async fn display_task(mut display: MyDisplay) {
         button_c_pressed: false,
         button_d_pressed: false,
         encoder_pressed: false,
-        current_idx: 0,
-        mode: Mode::Keyboard,
     };
 
     refresh_initial_ui(&mut display, &ui_state).await.unwrap();
