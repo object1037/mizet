@@ -1,7 +1,7 @@
 use core::sync::atomic::Ordering;
 
 use crate::keymap::{KEYMAP, get_next_idx, get_prev_idx};
-use crate::shared::{Button, CURRENT_INDEX, EVENT_CH, IS_KEYBOARD_MODE, UiEvent};
+use crate::shared::{Button, CURRENT_INDEX, Direction, EVENT_CH, IS_KEYBOARD_MODE, UiEvent};
 
 use defmt::*;
 use embassy_rp::i2c;
@@ -33,6 +33,7 @@ struct UiState {
     button_c_pressed: bool,
     button_d_pressed: bool,
     encoder_pressed: bool,
+    rotation_animate: Option<Direction>,
 }
 
 impl UiState {
@@ -55,8 +56,11 @@ impl UiState {
                 self.button_c_pressed = false;
                 self.button_d_pressed = false;
                 self.encoder_pressed = false;
+                self.rotation_animate = None;
             }
-            _ => {}
+            UiEvent::Rotary(direction) => {
+                self.rotation_animate = Some(direction);
+            }
         }
     }
 }
@@ -124,11 +128,44 @@ where
 
 async fn refresh_ui(
     display: &mut MyDisplay,
-    ui_state: &UiState,
+    ui_state: &mut UiState,
 ) -> Result<(), <MyDisplay as DrawTarget>::Error> {
     display.clear(BinaryColor::Off)?;
     match IS_KEYBOARD_MODE.load(Ordering::Relaxed) {
-        true => draw_keyboard_ui(display, ui_state, 0)?,
+        true => match &ui_state.rotation_animate {
+            Some(direction) => {
+                // let mut ticker = Ticker::every(Duration::from_millis(17));
+                const OFFSET_STEP: i32 = 7;
+                let mut offset = 0;
+                for i in 0..=2 {
+                    // ticker.next().await;
+                    if i == 1 {
+                        // Middle of the animation: Update index and offset
+                        let current_index = CURRENT_INDEX.load(Ordering::Relaxed);
+                        let new_index = match direction {
+                            Direction::Clockwise => get_prev_idx(current_index),
+                            Direction::CounterClockwise => get_next_idx(current_index),
+                        };
+                        CURRENT_INDEX.store(new_index, Ordering::Relaxed);
+                        offset = match direction {
+                            Direction::Clockwise => -OFFSET_STEP,
+                            Direction::CounterClockwise => OFFSET_STEP,
+                        };
+                    } else {
+                        offset += match direction {
+                            Direction::Clockwise => OFFSET_STEP,
+                            Direction::CounterClockwise => -OFFSET_STEP,
+                        };
+                    }
+
+                    display.clear(BinaryColor::Off)?;
+                    draw_keyboard_ui(display, ui_state, 0, offset)?;
+                    display.flush().await?;
+                }
+                ui_state.rotation_animate = None;
+            }
+            None => draw_keyboard_ui(display, ui_state, 0, 0)?,
+        },
         false => draw_mouse_ui(display, ui_state)?,
     }
     display.flush().await?;
@@ -184,6 +221,7 @@ fn draw_keyboard_ui<D>(
     display: &mut D,
     ui_state: &UiState,
     button_offset: i32,
+    key_offset: i32,
 ) -> Result<(), D::Error>
 where
     D: DrawTarget<Color = BinaryColor>,
@@ -320,20 +358,20 @@ where
     let next1_index = get_next_idx(current_index);
     let next2_index = get_next_idx(next1_index);
 
-    draw_key(display, prev2_index, 34, BinaryColor::On)?;
-    draw_key(display, prev1_index, 54, BinaryColor::On)?;
+    draw_key(display, prev2_index, key_offset + 34, BinaryColor::On)?;
+    draw_key(display, prev1_index, key_offset + 54, BinaryColor::On)?;
     draw_key(
         display,
         current_index,
-        75,
+        key_offset + 75,
         if ui_state.encoder_pressed {
             BinaryColor::Off
         } else {
             BinaryColor::On
         },
     )?;
-    draw_key(display, next1_index, 96, BinaryColor::On)?;
-    draw_key(display, next2_index, 116, BinaryColor::On)?;
+    draw_key(display, next1_index, key_offset + 96, BinaryColor::On)?;
+    draw_key(display, next2_index, key_offset + 116, BinaryColor::On)?;
 
     Ok(())
 }
@@ -354,7 +392,7 @@ async fn refresh_initial_ui(
     for i in 0..6 {
         let button_offset = -20 + i * 4;
         display.clear(BinaryColor::Off)?;
-        draw_keyboard_ui(display, ui_state, button_offset)?;
+        draw_keyboard_ui(display, ui_state, button_offset, 0)?;
         display.flush().await?;
         ticker.next().await;
     }
@@ -378,6 +416,7 @@ pub async fn display_task(mut display: MyDisplay) {
         button_c_pressed: false,
         button_d_pressed: false,
         encoder_pressed: false,
+        rotation_animate: None,
     };
 
     refresh_initial_ui(&mut display, &ui_state).await.unwrap();
@@ -388,6 +427,6 @@ pub async fn display_task(mut display: MyDisplay) {
         let event = subscriber.next_message_pure().await;
         ui_state.set_state(event);
 
-        refresh_ui(&mut display, &ui_state).await.unwrap();
+        refresh_ui(&mut display, &mut ui_state).await.unwrap();
     }
 }
