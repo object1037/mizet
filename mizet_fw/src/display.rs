@@ -8,10 +8,11 @@ use embassy_rp::i2c;
 use embassy_rp::peripherals::I2C0;
 use embassy_time::{Duration, Ticker, Timer};
 use embedded_graphics::draw_target::DrawTarget;
-use embedded_graphics::mono_font::ascii::FONT_6X12;
+use embedded_graphics::mono_font::{
+    DecorationDimensions, MonoFont, MonoTextStyleBuilder, ascii::FONT_5X8, mapping::ASCII,
+};
 use embedded_graphics::{
     image::{Image, ImageRaw},
-    mono_font::{MonoTextStyleBuilder, ascii::FONT_5X8},
     pixelcolor::BinaryColor,
     prelude::*,
     primitives::{Line, PrimitiveStyleBuilder, Rectangle},
@@ -20,6 +21,16 @@ use embedded_graphics::{
 use ssd1306::mode::BufferedGraphicsModeAsync;
 use ssd1306::{Ssd1306Async, prelude::*};
 use {defmt_rtt as _, panic_probe as _};
+
+const DEPARTURE_7X12: MonoFont = MonoFont {
+    image: ImageRaw::new(include_bytes!("fonts/DepartureMono.raw"), 112),
+    glyph_mapping: &ASCII,
+    character_size: Size::new(7, 12),
+    character_spacing: 1,
+    baseline: 9,
+    underline: DecorationDimensions::default_underline(10),
+    strikethrough: DecorationDimensions::default_strikethrough(10),
+};
 
 type MyDisplay = Ssd1306Async<
     I2CInterface<i2c::I2c<'static, I2C0, i2c::Async>>,
@@ -178,7 +189,7 @@ where
     D: DrawTarget<Color = BinaryColor>,
 {
     let text_style = MonoTextStyleBuilder::new()
-        .font(&FONT_6X12)
+        .font(&DEPARTURE_7X12)
         .text_color(color)
         .build();
 
@@ -358,20 +369,20 @@ where
     let next1_index = get_next_idx(current_index);
     let next2_index = get_next_idx(next1_index);
 
-    draw_key(display, prev2_index, key_offset + 34, BinaryColor::On)?;
-    draw_key(display, prev1_index, key_offset + 54, BinaryColor::On)?;
+    draw_key(display, prev2_index, key_offset + 33, BinaryColor::On)?;
+    draw_key(display, prev1_index, key_offset + 53, BinaryColor::On)?;
     draw_key(
         display,
         current_index,
-        key_offset + 75,
+        key_offset + 74,
         if ui_state.encoder_pressed {
             BinaryColor::Off
         } else {
             BinaryColor::On
         },
     )?;
-    draw_key(display, next1_index, key_offset + 96, BinaryColor::On)?;
-    draw_key(display, next2_index, key_offset + 116, BinaryColor::On)?;
+    draw_key(display, next1_index, key_offset + 95, BinaryColor::On)?;
+    draw_key(display, next2_index, key_offset + 115, BinaryColor::On)?;
 
     Ok(())
 }
