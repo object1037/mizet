@@ -245,8 +245,8 @@ pub static KEYMAP: [KeyInfo; KEY_LENGTH] = [
     },
     KeyInfo {
         keycode: KeyboardUsage::KeyboardEnter,
-        shifted_key: "R",
-        middle_key: Some("E"),
+        shifted_key: "E",
+        middle_key: Some("N"),
         key: "T",
     },
     KeyInfo {
