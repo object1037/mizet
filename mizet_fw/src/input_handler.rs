@@ -26,21 +26,6 @@ pub async fn input_handler_task() {
                     button_d_pressed = true;
                     button_d_press_start = Some(Instant::now());
                 }
-            }
-            UiEvent::ButtonRelease(button) => {
-                if let Button::D = button {
-                    if let Some(start_time) = button_d_press_start {
-                        let press_duration = Instant::now() - start_time;
-                        if press_duration.as_millis() < 250 {
-                            let is_keyboard_mode = IS_KEYBOARD_MODE.load(Ordering::Relaxed);
-                            IS_KEYBOARD_MODE.store(!is_keyboard_mode, Ordering::Relaxed);
-                            mode_publisher.publish(ModeChange::MainMode).await;
-                            info!("Button D tapped: toggling keyboard/mouse mode");
-                        }
-                    }
-                    button_d_pressed = false;
-                    button_d_press_start = None;
-                }
 
                 if let Button::Encoder = button {
                     let is_keyboard_mode = IS_KEYBOARD_MODE.load(Ordering::Relaxed);
@@ -56,6 +41,21 @@ pub async fn input_handler_task() {
                         }
                         mode_publisher.publish(ModeChange::SubMode).await;
                     }
+                }
+            }
+            UiEvent::ButtonRelease(button) => {
+                if let Button::D = button {
+                    if let Some(start_time) = button_d_press_start {
+                        let press_duration = Instant::now() - start_time;
+                        if press_duration.as_millis() < 250 {
+                            let is_keyboard_mode = IS_KEYBOARD_MODE.load(Ordering::Relaxed);
+                            IS_KEYBOARD_MODE.store(!is_keyboard_mode, Ordering::Relaxed);
+                            mode_publisher.publish(ModeChange::MainMode).await;
+                            info!("Button D tapped: toggling keyboard/mouse mode");
+                        }
+                    }
+                    button_d_pressed = false;
+                    button_d_press_start = None;
                 }
             }
             _ => {}
