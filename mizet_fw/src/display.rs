@@ -236,30 +236,86 @@ where
     Ok(())
 }
 
-fn draw_base_ui<D>(display: &mut D, ui_state: &UiState) -> Result<(), D::Error>
+#[derive(Clone, Copy)]
+enum ArrowDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+fn draw_arrow<D>(
+    display: &mut D,
+    point: Point,
+    is_pressed: bool,
+    direction: ArrowDirection,
+) -> Result<(), D::Error>
 where
     D: DrawTarget<Color = BinaryColor>,
 {
     #[rustfmt::skip]
     #[allow(clippy::unusual_byte_groupings)]
-    const ARROW_DATA: &[u8] = &[
-        0b00100_000,
-        0b01110_000,
-        0b10101_000,
-        0b00100_000,
-        0b00100_000,
-        0b00100_000,
+    const ARROW_V_DATA: &[u8] = &[
+        0b001000_00,
+        0b011100_00,
+        0b101010_00,
+        0b001000_00,
+        0b001000_00,
+        0b001000_00,
+    ];
+    const ARROW_H_DATA: &[u8] = &[
+        0b001000_00,
+        0b010000_00,
+        0b111111_00,
+        0b010000_00,
+        0b001000_00,
+        0b000000_00,
     ];
 
-    const TOTAL_BYTES: usize = 6;
-    fn inv_image_data(data: &[u8]) -> [u8; TOTAL_BYTES] {
-        let mut inv_data = [0u8; TOTAL_BYTES];
+    const IMAGE_DIM: usize = 6;
+    fn flip_v_image_data(data: &[u8]) -> [u8; IMAGE_DIM] {
+        let mut flipped_data = [0u8; IMAGE_DIM];
+        for (i, byte) in data.iter().enumerate() {
+            flipped_data[data.len() - 1 - i] = *byte;
+        }
+        flipped_data
+    }
+    fn flip_h_image_data(data: &[u8]) -> [u8; IMAGE_DIM] {
+        let mut flipped_data = [0u8; IMAGE_DIM];
+        for (i, byte) in data.iter().enumerate() {
+            flipped_data[i] = byte.reverse_bits() << 2;
+        }
+        flipped_data
+    }
+    fn inv_image_data(data: &[u8]) -> [u8; IMAGE_DIM] {
+        let mut inv_data = [0u8; IMAGE_DIM];
         for (i, byte) in data.iter().enumerate() {
             inv_data[i] = !byte;
         }
         inv_data
     }
 
+    let arrow_data = match direction {
+        ArrowDirection::Up => ARROW_V_DATA,
+        ArrowDirection::Down => &flip_v_image_data(ARROW_V_DATA),
+        ArrowDirection::Left => ARROW_H_DATA,
+        ArrowDirection::Right => &flip_h_image_data(ARROW_H_DATA),
+    };
+    let inv_arrow_data = inv_image_data(arrow_data);
+    let raw_image = if is_pressed {
+        ImageRaw::<BinaryColor>::new(&inv_arrow_data, IMAGE_DIM as u32)
+    } else {
+        ImageRaw::<BinaryColor>::new(arrow_data, IMAGE_DIM as u32)
+    };
+    Image::new(&raw_image, point).draw(display)?;
+
+    Ok(())
+}
+
+fn draw_base_ui<D>(display: &mut D, ui_state: &UiState) -> Result<(), D::Error>
+where
+    D: DrawTarget<Color = BinaryColor>,
+{
     draw_button_rect(
         display,
         Point::new(-1, -1),
@@ -285,14 +341,6 @@ where
         ui_state.button_d_pressed,
     )?;
 
-    let inv_arrow_data = inv_image_data(ARROW_DATA);
-    let raw_image = if ui_state.button_d_pressed {
-        ImageRaw::<BinaryColor>::new(&inv_arrow_data, 5)
-    } else {
-        ImageRaw::<BinaryColor>::new(ARROW_DATA, 5)
-    };
-    Image::new(&raw_image, Point::new(20, 13)).draw(display)?;
-
     Ok(())
 }
 
@@ -306,6 +354,12 @@ where
     D: DrawTarget<Color = BinaryColor>,
 {
     draw_base_ui(display, ui_state)?;
+    draw_arrow(
+        display,
+        Point::new(20, 13),
+        ui_state.button_d_pressed,
+        ArrowDirection::Up,
+    )?;
 
     draw_button_label(
         display,
@@ -372,13 +426,23 @@ fn draw_mouse_ui<D>(display: &mut D, ui_state: &UiState) -> Result<(), D::Error>
 where
     D: DrawTarget<Color = BinaryColor>,
 {
+    let is_move_mode = IS_MOVE_MODE.load(Ordering::Relaxed);
     draw_base_ui(display, ui_state)?;
+    draw_arrow(
+        display,
+        Point::new(20, 13),
+        ui_state.button_d_pressed,
+        if is_move_mode {
+            ArrowDirection::Up
+        } else {
+            ArrowDirection::Down
+        },
+    )?;
 
     draw_button_label(display, "R", Point::new(6, 1), ui_state.button_a_pressed)?;
     draw_button_label(display, "M", Point::new(6, 12), ui_state.button_b_pressed)?;
     draw_button_label(display, "L", Point::new(6, 23), ui_state.button_c_pressed)?;
 
-    let is_move_mode = IS_MOVE_MODE.load(Ordering::Relaxed);
     let y_offset = if is_move_mode { 15 } else { 0 };
 
     const CORNER_L: i32 = 28;
@@ -417,20 +481,32 @@ where
 
     let is_movement_y = IS_MOVEMENT_Y.load(Ordering::Relaxed);
 
-    let axis_label = if is_movement_y { "Y" } else { "X" };
     Text::with_baseline("Scroll", Point::new(39, 2), TEXT_LG, Baseline::Top).draw(display)?;
     Text::with_baseline("Move", Point::new(46, 17), TEXT_LG, Baseline::Top).draw(display)?;
-    Text::with_baseline(
-        axis_label,
-        Point::new(108, 10),
-        if ui_state.encoder_pressed {
-            INV_TEXT_LG
-        } else {
-            TEXT_LG
-        },
-        Baseline::Top,
-    )
-    .draw(display)?;
+
+    const ARROW_X: i32 = 112;
+    const ARROW_Y: i32 = 13;
+    let (points, dirs) = if is_movement_y {
+        (
+            [
+                Point::new(ARROW_X - 3, ARROW_Y - 3),
+                Point::new(ARROW_X - 3, ARROW_Y + 3),
+            ],
+            [ArrowDirection::Up, ArrowDirection::Down],
+        )
+    } else {
+        (
+            [
+                Point::new(ARROW_X - 6, ARROW_Y),
+                Point::new(ARROW_X, ARROW_Y),
+            ],
+            [ArrowDirection::Left, ArrowDirection::Right],
+        )
+    };
+
+    for i in 0..2 {
+        draw_arrow(display, points[i], ui_state.encoder_pressed, dirs[i])?;
+    }
 
     Ok(())
 }
