@@ -1,6 +1,6 @@
 use core::sync::atomic::Ordering;
 
-use crate::shared::{Button, EVENT_CH, IS_KEYBOARD_MODE, IS_MOVE_MODE, IS_MOVEMENT_Y, UiEvent};
+use crate::shared::{Button, EVENT_CH, IS_KEYBOARD_MODE, IS_MOVE_MODE, IS_MOVEMENT_Y, ModeChange, MODE_CH, UiEvent};
 
 use defmt::*;
 use embassy_time::Instant;
@@ -9,7 +9,7 @@ use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::task]
 pub async fn input_handler_task() {
-    let publisher = EVENT_CH.publisher().unwrap();
+    let mode_publisher = MODE_CH.publisher().unwrap();
     let mut subscriber = EVENT_CH.subscriber().unwrap();
 
     let mut button_d_pressed: bool = false;
@@ -32,7 +32,7 @@ pub async fn input_handler_task() {
                         if press_duration.as_millis() < 250 {
                             let is_keyboard_mode = IS_KEYBOARD_MODE.load(Ordering::Relaxed);
                             IS_KEYBOARD_MODE.store(!is_keyboard_mode, Ordering::Relaxed);
-                            publisher.publish(UiEvent::ModeToggle).await;
+                            mode_publisher.publish(ModeChange::MainMode).await;
                             info!("Button D tapped: toggling keyboard/mouse mode");
                         }
                     }
@@ -52,7 +52,7 @@ pub async fn input_handler_task() {
                             IS_MOVEMENT_Y.store(!is_movement_y, Ordering::Relaxed);
                             info!("Encoder: toggling X/Y axis");
                         }
-                        publisher.publish(UiEvent::ModeToggle).await;
+                        mode_publisher.publish(ModeChange::SubMode).await;
                     }
                 }
             }

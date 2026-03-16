@@ -3,10 +3,11 @@ use core::sync::atomic::Ordering;
 use crate::keymap::{KEYMAP, get_next_idx, get_prev_idx};
 use crate::shared::{
     Button, CURRENT_INDEX, Direction, EVENT_CH, IS_KEYBOARD_MODE, IS_MOVE_MODE, IS_MOVEMENT_Y,
-    UiEvent,
+    ModeChange, MODE_CH, UiEvent,
 };
 
 use defmt::*;
+use embassy_futures::select::{select, Either};
 use embassy_rp::i2c;
 use embassy_rp::peripherals::I2C0;
 use embassy_time::{Duration, Ticker, Timer};
@@ -88,19 +89,19 @@ impl UiState {
                     Button::Encoder => self.encoder_pressed = pressed,
                 }
             }
-            UiEvent::ModeToggle => {
-                // Release all buttons
-                self.button_a_pressed = false;
-                self.button_b_pressed = false;
-                self.button_c_pressed = false;
-                self.button_d_pressed = false;
-                self.encoder_pressed = false;
-                self.rotation_animate = None;
-            }
             UiEvent::Rotary(direction) => {
                 self.rotation_animate = Some(direction);
             }
         }
+    }
+
+    fn reset(&mut self) {
+        self.button_a_pressed = false;
+        self.button_b_pressed = false;
+        self.button_c_pressed = false;
+        self.button_d_pressed = false;
+        self.encoder_pressed = false;
+        self.rotation_animate = None;
     }
 }
 
@@ -552,11 +553,25 @@ pub async fn display_task(mut display: MyDisplay) {
 
     refresh_initial_ui(&mut display, &ui_state).await.unwrap();
 
-    let mut subscriber = EVENT_CH.subscriber().unwrap();
+    let mut event_subscriber = EVENT_CH.subscriber().unwrap();
+    let mut mode_subscriber = MODE_CH.subscriber().unwrap();
 
     loop {
-        let event = subscriber.next_message_pure().await;
-        ui_state.set_state(event);
+        match select(
+            event_subscriber.next_message_pure(),
+            mode_subscriber.next_message_pure(),
+        )
+        .await
+        {
+            Either::First(event) => {
+                ui_state.set_state(event);
+            }
+            Either::Second(mode_change) => {
+                if let ModeChange::MainMode = mode_change {
+                    ui_state.reset();
+                }
+            }
+        }
 
         refresh_ui(&mut display, &mut ui_state).await.unwrap();
     }
