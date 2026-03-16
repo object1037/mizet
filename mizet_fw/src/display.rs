@@ -1,7 +1,10 @@
 use core::sync::atomic::Ordering;
 
 use crate::keymap::{KEYMAP, get_next_idx, get_prev_idx};
-use crate::shared::{Button, CURRENT_INDEX, Direction, EVENT_CH, IS_KEYBOARD_MODE, UiEvent};
+use crate::shared::{
+    Button, CURRENT_INDEX, Direction, EVENT_CH, IS_KEYBOARD_MODE, IS_MOVE_MODE, IS_MOVEMENT_Y,
+    UiEvent,
+};
 
 use defmt::*;
 use embassy_rp::i2c;
@@ -9,13 +12,14 @@ use embassy_rp::peripherals::I2C0;
 use embassy_time::{Duration, Ticker, Timer};
 use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::mono_font::{
-    DecorationDimensions, MonoFont, MonoTextStyleBuilder, ascii::FONT_5X8, mapping::ASCII,
+    DecorationDimensions, MonoFont, MonoTextStyle, MonoTextStyleBuilder, ascii::FONT_5X8,
+    mapping::ASCII,
 };
 use embedded_graphics::{
     image::{Image, ImageRaw},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{Line, PrimitiveStyleBuilder, Rectangle},
+    primitives::{Line, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle},
     text::{Baseline, Text},
 };
 use ssd1306::mode::BufferedGraphicsModeAsync;
@@ -31,6 +35,30 @@ const DEPARTURE_7X12: MonoFont = MonoFont {
     underline: DecorationDimensions::default_underline(10),
     strikethrough: DecorationDimensions::default_strikethrough(10),
 };
+
+static BORDERED: PrimitiveStyle<BinaryColor> = PrimitiveStyleBuilder::new()
+    .stroke_color(BinaryColor::On)
+    .stroke_width(1)
+    .build();
+static FILLED: PrimitiveStyle<BinaryColor> = PrimitiveStyleBuilder::new()
+    .fill_color(BinaryColor::On)
+    .build();
+static TEXT_SM: MonoTextStyle<BinaryColor> = MonoTextStyleBuilder::new()
+    .font(&FONT_5X8)
+    .text_color(BinaryColor::On)
+    .build();
+static INV_TEXT_SM: MonoTextStyle<BinaryColor> = MonoTextStyleBuilder::new()
+    .font(&FONT_5X8)
+    .text_color(BinaryColor::Off)
+    .build();
+static TEXT_LG: MonoTextStyle<BinaryColor> = MonoTextStyleBuilder::new()
+    .font(&DEPARTURE_7X12)
+    .text_color(BinaryColor::On)
+    .build();
+static INV_TEXT_LG: MonoTextStyle<BinaryColor> = MonoTextStyleBuilder::new()
+    .font(&DEPARTURE_7X12)
+    .text_color(BinaryColor::Off)
+    .build();
 
 type MyDisplay = Ssd1306Async<
     I2CInterface<i2c::I2c<'static, I2C0, i2c::Async>>,
@@ -137,62 +165,15 @@ where
     Ok(())
 }
 
-async fn refresh_ui(
-    display: &mut MyDisplay,
-    ui_state: &mut UiState,
-) -> Result<(), <MyDisplay as DrawTarget>::Error> {
-    display.clear(BinaryColor::Off)?;
-    match IS_KEYBOARD_MODE.load(Ordering::Relaxed) {
-        true => match &ui_state.rotation_animate {
-            Some(direction) => {
-                // let mut ticker = Ticker::every(Duration::from_millis(17));
-                const OFFSET_STEP: i32 = 7;
-                let mut offset = 0;
-                for i in 0..=2 {
-                    // ticker.next().await;
-                    if i == 1 {
-                        // Middle of the animation: Update index and offset
-                        let current_index = CURRENT_INDEX.load(Ordering::Relaxed);
-                        let new_index = match direction {
-                            Direction::Clockwise => get_prev_idx(current_index),
-                            Direction::CounterClockwise => get_next_idx(current_index),
-                        };
-                        CURRENT_INDEX.store(new_index, Ordering::Relaxed);
-                        offset = match direction {
-                            Direction::Clockwise => -OFFSET_STEP,
-                            Direction::CounterClockwise => OFFSET_STEP,
-                        };
-                    } else {
-                        offset += match direction {
-                            Direction::Clockwise => OFFSET_STEP,
-                            Direction::CounterClockwise => -OFFSET_STEP,
-                        };
-                    }
-
-                    display.clear(BinaryColor::Off)?;
-                    draw_keyboard_ui(display, ui_state, 0, offset)?;
-                    display.flush().await?;
-                }
-                ui_state.rotation_animate = None;
-            }
-            None => draw_keyboard_ui(display, ui_state, 0, 0)?,
-        },
-        false => draw_mouse_ui(display, ui_state)?,
-    }
-    display.flush().await?;
-
-    Ok(())
-}
-
-fn draw_key<D>(display: &mut D, index: usize, x: i32, color: BinaryColor) -> Result<(), D::Error>
+fn draw_key<D>(
+    display: &mut D,
+    index: usize,
+    x: i32,
+    style: &MonoTextStyle<BinaryColor>,
+) -> Result<(), D::Error>
 where
     D: DrawTarget<Color = BinaryColor>,
 {
-    let text_style = MonoTextStyleBuilder::new()
-        .font(&DEPARTURE_7X12)
-        .text_color(color)
-        .build();
-
     let y_top = if KEYMAP[index].middle_key.is_some() {
         0
     } else {
@@ -207,20 +188,19 @@ where
     Text::with_baseline(
         KEYMAP[index].shifted_key,
         Point::new(x, y_top),
-        text_style,
+        *style,
         Baseline::Top,
     )
     .draw(display)?;
 
     if let Some(middle_key) = KEYMAP[index].middle_key {
-        Text::with_baseline(middle_key, Point::new(x, 10), text_style, Baseline::Top)
-            .draw(display)?;
+        Text::with_baseline(middle_key, Point::new(x, 10), *style, Baseline::Top).draw(display)?;
     }
 
     Text::with_baseline(
         KEYMAP[index].key,
         Point::new(x, y_bottom),
-        text_style,
+        *style,
         Baseline::Top,
     )
     .draw(display)?;
@@ -228,12 +208,7 @@ where
     Ok(())
 }
 
-fn draw_keyboard_ui<D>(
-    display: &mut D,
-    ui_state: &UiState,
-    button_offset: i32,
-    key_offset: i32,
-) -> Result<(), D::Error>
+fn draw_base_ui<D>(display: &mut D, ui_state: &UiState) -> Result<(), D::Error>
 where
     D: DrawTarget<Color = BinaryColor>,
 {
@@ -257,84 +232,34 @@ where
         inv_data
     }
 
-    let border = PrimitiveStyleBuilder::new()
-        .stroke_color(BinaryColor::On)
-        .stroke_width(1)
-        .build();
-    let fill = PrimitiveStyleBuilder::new()
-        .fill_color(BinaryColor::On)
-        .build();
-    let text_style = MonoTextStyleBuilder::new()
-        .font(&FONT_5X8)
-        .text_color(BinaryColor::On)
-        .build();
-    let inv_text_style = MonoTextStyleBuilder::new()
-        .font(&FONT_5X8)
-        .text_color(BinaryColor::Off)
-        .build();
-
     Rectangle::new(Point::new(-1, -1), Size::new(20, 12))
         .into_styled(if ui_state.button_a_pressed {
-            fill
+            FILLED
         } else {
-            border
+            BORDERED
         })
         .draw(display)?;
     Rectangle::new(Point::new(-1, 10), Size::new(20, 12))
         .into_styled(if ui_state.button_b_pressed {
-            fill
+            FILLED
         } else {
-            border
+            BORDERED
         })
         .draw(display)?;
     Rectangle::new(Point::new(-1, 21), Size::new(20, 12))
         .into_styled(if ui_state.button_c_pressed {
-            fill
+            FILLED
         } else {
-            border
+            BORDERED
         })
         .draw(display)?;
     Rectangle::new(Point::new(18, -1), Size::new(9, 34))
         .into_styled(if ui_state.button_d_pressed {
-            fill
+            FILLED
         } else {
-            border
+            BORDERED
         })
         .draw(display)?;
-
-    Text::with_baseline(
-        "Ctl",
-        Point::new(button_offset + 1, 1),
-        if ui_state.button_a_pressed {
-            inv_text_style
-        } else {
-            text_style
-        },
-        Baseline::Top,
-    )
-    .draw(display)?;
-    Text::with_baseline(
-        "Alt",
-        Point::new(button_offset + 1, 12),
-        if ui_state.button_b_pressed {
-            inv_text_style
-        } else {
-            text_style
-        },
-        Baseline::Top,
-    )
-    .draw(display)?;
-    Text::with_baseline(
-        "Gui",
-        Point::new(button_offset + 1, 23),
-        if ui_state.button_c_pressed {
-            inv_text_style
-        } else {
-            text_style
-        },
-        Baseline::Top,
-    )
-    .draw(display)?;
 
     let inv_arrow_data = inv_image_data(ARROW_DATA);
     let raw_image = if ui_state.button_d_pressed {
@@ -344,23 +269,71 @@ where
     };
     Image::new(&raw_image, Point::new(20, 13)).draw(display)?;
 
+    Ok(())
+}
+
+fn draw_keyboard_ui<D>(
+    display: &mut D,
+    ui_state: &UiState,
+    button_offset: i32,
+    key_offset: i32,
+) -> Result<(), D::Error>
+where
+    D: DrawTarget<Color = BinaryColor>,
+{
+    draw_base_ui(display, ui_state)?;
+
+    Text::with_baseline(
+        "Ctl",
+        Point::new(button_offset + 1, 1),
+        if ui_state.button_a_pressed {
+            INV_TEXT_SM
+        } else {
+            TEXT_SM
+        },
+        Baseline::Top,
+    )
+    .draw(display)?;
+    Text::with_baseline(
+        "Alt",
+        Point::new(button_offset + 1, 12),
+        if ui_state.button_b_pressed {
+            INV_TEXT_SM
+        } else {
+            TEXT_SM
+        },
+        Baseline::Top,
+    )
+    .draw(display)?;
+    Text::with_baseline(
+        "Gui",
+        Point::new(button_offset + 1, 23),
+        if ui_state.button_c_pressed {
+            INV_TEXT_SM
+        } else {
+            TEXT_SM
+        },
+        Baseline::Top,
+    )
+    .draw(display)?;
+
     Line::new(Point::new(26, 0), Point::new(26, 31))
-        .into_styled(border)
+        .into_styled(BORDERED)
         .draw(display)?;
     Line::new(Point::new(46, 1), Point::new(46, 30))
-        .into_styled(border)
+        .into_styled(BORDERED)
         .draw(display)?;
 
     Rectangle::new(Point::new(66, 0), Size::new(23, 32))
         .into_styled(if ui_state.encoder_pressed {
-            fill
+            FILLED
         } else {
-            border
+            BORDERED
         })
         .draw(display)?;
 
     Line::new(Point::new(108, 1), Point::new(108, 30))
-        .into_styled(border)
+        .into_styled(BORDERED)
         .draw(display)?;
 
     let current_index = CURRENT_INDEX.load(Ordering::Relaxed);
@@ -369,29 +342,176 @@ where
     let next1_index = get_next_idx(current_index);
     let next2_index = get_next_idx(next1_index);
 
-    draw_key(display, prev2_index, key_offset + 33, BinaryColor::On)?;
-    draw_key(display, prev1_index, key_offset + 53, BinaryColor::On)?;
+    draw_key(display, prev2_index, key_offset + 33, &TEXT_LG)?;
+    draw_key(display, prev1_index, key_offset + 53, &TEXT_LG)?;
     draw_key(
         display,
         current_index,
         key_offset + 74,
         if ui_state.encoder_pressed {
-            BinaryColor::Off
+            &INV_TEXT_LG
         } else {
-            BinaryColor::On
+            &TEXT_LG
         },
     )?;
-    draw_key(display, next1_index, key_offset + 95, BinaryColor::On)?;
-    draw_key(display, next2_index, key_offset + 115, BinaryColor::On)?;
+    draw_key(display, next1_index, key_offset + 95, &TEXT_LG)?;
+    draw_key(display, next2_index, key_offset + 115, &TEXT_LG)?;
 
     Ok(())
 }
 
-fn draw_mouse_ui<D>(_display: &mut D, ui_state: &UiState) -> Result<(), D::Error>
+fn draw_mouse_ui<D>(display: &mut D, ui_state: &UiState) -> Result<(), D::Error>
 where
     D: DrawTarget<Color = BinaryColor>,
 {
-    // Placeholder for mouse mode UI
+    draw_base_ui(display, ui_state)?;
+
+    Text::with_baseline(
+        "R",
+        Point::new(6, 1),
+        if ui_state.button_a_pressed {
+            INV_TEXT_SM
+        } else {
+            TEXT_SM
+        },
+        Baseline::Top,
+    )
+    .draw(display)?;
+    Text::with_baseline(
+        "M",
+        Point::new(6, 12),
+        if ui_state.button_b_pressed {
+            INV_TEXT_SM
+        } else {
+            TEXT_SM
+        },
+        Baseline::Top,
+    )
+    .draw(display)?;
+    Text::with_baseline(
+        "L",
+        Point::new(6, 23),
+        if ui_state.button_c_pressed {
+            INV_TEXT_SM
+        } else {
+            TEXT_SM
+        },
+        Baseline::Top,
+    )
+    .draw(display)?;
+
+    let is_move_mode = IS_MOVE_MODE.load(Ordering::Relaxed);
+    let y_offset = if is_move_mode { 15 } else { 0 };
+
+    const CORNER_L: i32 = 28;
+    const CORNER_R: i32 = 93;
+    const CORNER_T: i32 = 1;
+    const CORNER_B: i32 = 15;
+    const CORNER_LEN: i32 = 4;
+
+    let corners = [
+        (CORNER_L, CORNER_T, 1, 1),   // top-left
+        (CORNER_R, CORNER_T, -1, 1),  // top-right
+        (CORNER_L, CORNER_B, 1, -1),  // bottom-left
+        (CORNER_R, CORNER_B, -1, -1), // bottom-right
+    ];
+
+    for &(x, y, sx, sy) in &corners {
+        Line::new(
+            Point::new(x, y + y_offset),
+            Point::new(x + sx * CORNER_LEN, y + y_offset),
+        )
+        .into_styled(BORDERED)
+        .draw(display)?;
+        Line::new(
+            Point::new(x, y + y_offset),
+            Point::new(x, y + y_offset + sy * CORNER_LEN),
+        )
+        .into_styled(BORDERED)
+        .draw(display)?;
+    }
+    Rectangle::new(Point::new(95, -1), Size::new(34, 34))
+        .into_styled(if ui_state.encoder_pressed {
+            FILLED
+        } else {
+            BORDERED
+        })
+        .draw(display)?;
+
+    let is_movement_y = IS_MOVEMENT_Y.load(Ordering::Relaxed);
+
+    let axis_label = if is_movement_y { "Y" } else { "X" };
+    Text::with_baseline("Scroll", Point::new(39, 2), TEXT_LG, Baseline::Top).draw(display)?;
+    Text::with_baseline("Move", Point::new(46, 17), TEXT_LG, Baseline::Top).draw(display)?;
+    Text::with_baseline(
+        axis_label,
+        Point::new(108, 10),
+        if ui_state.encoder_pressed {
+            INV_TEXT_LG
+        } else {
+            TEXT_LG
+        },
+        Baseline::Top,
+    )
+    .draw(display)?;
+
+    Ok(())
+}
+
+async fn handle_rotation(
+    display: &mut MyDisplay,
+    ui_state: &UiState,
+    direction: &Direction,
+) -> Result<(), <MyDisplay as DrawTarget>::Error> {
+    // let mut ticker = Ticker::every(Duration::from_millis(17));
+    const OFFSET_STEP: i32 = 7;
+    let mut offset = 0;
+    for i in 0..=2 {
+        // ticker.next().await;
+        if i == 1 {
+            // Update index in the middle of the animation for smoother effect
+            let current_index = CURRENT_INDEX.load(Ordering::Relaxed);
+            let new_index = match direction {
+                Direction::Clockwise => get_prev_idx(current_index),
+                Direction::CounterClockwise => get_next_idx(current_index),
+            };
+            CURRENT_INDEX.store(new_index, Ordering::Relaxed);
+            offset = match direction {
+                Direction::Clockwise => -OFFSET_STEP,
+                Direction::CounterClockwise => OFFSET_STEP,
+            };
+        } else {
+            offset += match direction {
+                Direction::Clockwise => OFFSET_STEP,
+                Direction::CounterClockwise => -OFFSET_STEP,
+            };
+        }
+
+        display.clear(BinaryColor::Off)?;
+        draw_keyboard_ui(display, ui_state, 0, offset)?;
+        display.flush().await?;
+    }
+
+    Ok(())
+}
+
+async fn refresh_ui(
+    display: &mut MyDisplay,
+    ui_state: &mut UiState,
+) -> Result<(), <MyDisplay as DrawTarget>::Error> {
+    display.clear(BinaryColor::Off)?;
+    match IS_KEYBOARD_MODE.load(Ordering::Relaxed) {
+        true => match &ui_state.rotation_animate {
+            Some(direction) => {
+                handle_rotation(display, ui_state, direction).await?;
+                ui_state.rotation_animate = None;
+            }
+            None => draw_keyboard_ui(display, ui_state, 0, 0)?,
+        },
+        false => draw_mouse_ui(display, ui_state)?,
+    }
+    display.flush().await?;
+
     Ok(())
 }
 
