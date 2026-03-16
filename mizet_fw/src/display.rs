@@ -3,11 +3,11 @@ use core::sync::atomic::Ordering;
 use crate::keymap::{KEYMAP, get_next_idx, get_prev_idx};
 use crate::shared::{
     Button, CURRENT_INDEX, Direction, EVENT_CH, IS_KEYBOARD_MODE, IS_MOVE_MODE, IS_MOVEMENT_Y,
-    ModeChange, MODE_CH, UiEvent,
+    MODE_CH, ModeChange, UiEvent,
 };
 
 use defmt::*;
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_rp::i2c;
 use embassy_rp::peripherals::I2C0;
 use embassy_time::{Duration, Ticker, Timer};
@@ -175,16 +175,9 @@ fn draw_key<D>(
 where
     D: DrawTarget<Color = BinaryColor>,
 {
-    let y_top = if KEYMAP[index].middle_key.is_some() {
-        0
-    } else {
-        2
-    };
-    let y_bottom = if KEYMAP[index].middle_key.is_some() {
-        20
-    } else {
-        18
-    };
+    let has_middle = KEYMAP[index].middle_key.is_some();
+    let y_top = if has_middle { 0 } else { 2 };
+    let y_bottom = if has_middle { 20 } else { 18 };
 
     Text::with_baseline(
         KEYMAP[index].shifted_key,
@@ -206,6 +199,40 @@ where
     )
     .draw(display)?;
 
+    Ok(())
+}
+
+fn draw_button_rect<D>(
+    display: &mut D,
+    top_left: Point,
+    size: Size,
+    is_pressed: bool,
+) -> Result<(), D::Error>
+where
+    D: DrawTarget<Color = BinaryColor>,
+{
+    Rectangle::new(top_left, size)
+        .into_styled(if is_pressed { FILLED } else { BORDERED })
+        .draw(display)?;
+    Ok(())
+}
+
+fn draw_button_label<D>(
+    display: &mut D,
+    text: &str,
+    position: Point,
+    is_pressed: bool,
+) -> Result<(), D::Error>
+where
+    D: DrawTarget<Color = BinaryColor>,
+{
+    Text::with_baseline(
+        text,
+        position,
+        if is_pressed { INV_TEXT_SM } else { TEXT_SM },
+        Baseline::Top,
+    )
+    .draw(display)?;
     Ok(())
 }
 
@@ -233,34 +260,30 @@ where
         inv_data
     }
 
-    Rectangle::new(Point::new(-1, -1), Size::new(20, 12))
-        .into_styled(if ui_state.button_a_pressed {
-            FILLED
-        } else {
-            BORDERED
-        })
-        .draw(display)?;
-    Rectangle::new(Point::new(-1, 10), Size::new(20, 12))
-        .into_styled(if ui_state.button_b_pressed {
-            FILLED
-        } else {
-            BORDERED
-        })
-        .draw(display)?;
-    Rectangle::new(Point::new(-1, 21), Size::new(20, 12))
-        .into_styled(if ui_state.button_c_pressed {
-            FILLED
-        } else {
-            BORDERED
-        })
-        .draw(display)?;
-    Rectangle::new(Point::new(18, -1), Size::new(9, 34))
-        .into_styled(if ui_state.button_d_pressed {
-            FILLED
-        } else {
-            BORDERED
-        })
-        .draw(display)?;
+    draw_button_rect(
+        display,
+        Point::new(-1, -1),
+        Size::new(20, 12),
+        ui_state.button_a_pressed,
+    )?;
+    draw_button_rect(
+        display,
+        Point::new(-1, 10),
+        Size::new(20, 12),
+        ui_state.button_b_pressed,
+    )?;
+    draw_button_rect(
+        display,
+        Point::new(-1, 21),
+        Size::new(20, 12),
+        ui_state.button_c_pressed,
+    )?;
+    draw_button_rect(
+        display,
+        Point::new(18, -1),
+        Size::new(9, 34),
+        ui_state.button_d_pressed,
+    )?;
 
     let inv_arrow_data = inv_image_data(ARROW_DATA);
     let raw_image = if ui_state.button_d_pressed {
@@ -284,39 +307,24 @@ where
 {
     draw_base_ui(display, ui_state)?;
 
-    Text::with_baseline(
+    draw_button_label(
+        display,
         "Ctl",
         Point::new(button_offset + 1, 1),
-        if ui_state.button_a_pressed {
-            INV_TEXT_SM
-        } else {
-            TEXT_SM
-        },
-        Baseline::Top,
-    )
-    .draw(display)?;
-    Text::with_baseline(
+        ui_state.button_a_pressed,
+    )?;
+    draw_button_label(
+        display,
         "Alt",
         Point::new(button_offset + 1, 12),
-        if ui_state.button_b_pressed {
-            INV_TEXT_SM
-        } else {
-            TEXT_SM
-        },
-        Baseline::Top,
-    )
-    .draw(display)?;
-    Text::with_baseline(
+        ui_state.button_b_pressed,
+    )?;
+    draw_button_label(
+        display,
         "Gui",
         Point::new(button_offset + 1, 23),
-        if ui_state.button_c_pressed {
-            INV_TEXT_SM
-        } else {
-            TEXT_SM
-        },
-        Baseline::Top,
-    )
-    .draw(display)?;
+        ui_state.button_c_pressed,
+    )?;
 
     Line::new(Point::new(26, 0), Point::new(26, 31))
         .into_styled(BORDERED)
@@ -325,13 +333,12 @@ where
         .into_styled(BORDERED)
         .draw(display)?;
 
-    Rectangle::new(Point::new(66, 0), Size::new(23, 32))
-        .into_styled(if ui_state.encoder_pressed {
-            FILLED
-        } else {
-            BORDERED
-        })
-        .draw(display)?;
+    draw_button_rect(
+        display,
+        Point::new(66, 0),
+        Size::new(23, 32),
+        ui_state.encoder_pressed,
+    )?;
 
     Line::new(Point::new(108, 1), Point::new(108, 30))
         .into_styled(BORDERED)
@@ -367,39 +374,9 @@ where
 {
     draw_base_ui(display, ui_state)?;
 
-    Text::with_baseline(
-        "R",
-        Point::new(6, 1),
-        if ui_state.button_a_pressed {
-            INV_TEXT_SM
-        } else {
-            TEXT_SM
-        },
-        Baseline::Top,
-    )
-    .draw(display)?;
-    Text::with_baseline(
-        "M",
-        Point::new(6, 12),
-        if ui_state.button_b_pressed {
-            INV_TEXT_SM
-        } else {
-            TEXT_SM
-        },
-        Baseline::Top,
-    )
-    .draw(display)?;
-    Text::with_baseline(
-        "L",
-        Point::new(6, 23),
-        if ui_state.button_c_pressed {
-            INV_TEXT_SM
-        } else {
-            TEXT_SM
-        },
-        Baseline::Top,
-    )
-    .draw(display)?;
+    draw_button_label(display, "R", Point::new(6, 1), ui_state.button_a_pressed)?;
+    draw_button_label(display, "M", Point::new(6, 12), ui_state.button_b_pressed)?;
+    draw_button_label(display, "L", Point::new(6, 23), ui_state.button_c_pressed)?;
 
     let is_move_mode = IS_MOVE_MODE.load(Ordering::Relaxed);
     let y_offset = if is_move_mode { 15 } else { 0 };
@@ -431,13 +408,12 @@ where
         .into_styled(BORDERED)
         .draw(display)?;
     }
-    Rectangle::new(Point::new(95, -1), Size::new(34, 34))
-        .into_styled(if ui_state.encoder_pressed {
-            FILLED
-        } else {
-            BORDERED
-        })
-        .draw(display)?;
+    draw_button_rect(
+        display,
+        Point::new(95, -1),
+        Size::new(34, 34),
+        ui_state.encoder_pressed,
+    )?;
 
     let is_movement_y = IS_MOVEMENT_Y.load(Ordering::Relaxed);
 

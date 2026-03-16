@@ -1,6 +1,8 @@
 use core::sync::atomic::Ordering;
 
-use crate::shared::{Button, EVENT_CH, IS_KEYBOARD_MODE, IS_MOVE_MODE, IS_MOVEMENT_Y, ModeChange, MODE_CH, UiEvent};
+use crate::shared::{
+    Button, EVENT_CH, IS_KEYBOARD_MODE, IS_MOVE_MODE, IS_MOVEMENT_Y, MODE_CH, ModeChange, UiEvent,
+};
 
 use defmt::*;
 use embassy_time::Instant;
