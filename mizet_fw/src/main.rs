@@ -4,6 +4,7 @@
 mod button;
 mod display;
 mod encoder;
+mod input_handler;
 mod keymap;
 mod shared;
 mod usb;
@@ -84,5 +85,6 @@ async fn main(spawner: Spawner) {
         .unwrap();
     spawner.spawn(encoder::encoder_task(encoder)).unwrap();
     spawner.spawn(display::display_task(display)).unwrap();
+    spawner.spawn(input_handler::input_handler_task()).unwrap();
     spawner.spawn(usb::usb_task()).unwrap();
 }

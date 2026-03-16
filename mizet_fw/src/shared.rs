@@ -27,11 +27,10 @@ pub enum UiEvent {
     ModeToggle,
 }
 
-pub static EVENT_CH: PubSubChannel<CriticalSectionRawMutex, UiEvent, 4, 2, 6> =
-    PubSubChannel::<CriticalSectionRawMutex, UiEvent, 4, 2, 6>::new();
+pub static EVENT_CH: PubSubChannel<CriticalSectionRawMutex, UiEvent, 4, 3, 7> =
+    PubSubChannel::<CriticalSectionRawMutex, UiEvent, 4, 3, 7>::new();
 
 pub static IS_KEYBOARD_MODE: AtomicBool = AtomicBool::new(true);
 pub static IS_MOVE_MODE: AtomicBool = AtomicBool::new(true);
 pub static IS_MOVEMENT_Y: AtomicBool = AtomicBool::new(true);
 pub static CURRENT_INDEX: AtomicUsize = AtomicUsize::new(0);
-pub static IS_BUTTON_D_PRESSED: AtomicBool = AtomicBool::new(false);
