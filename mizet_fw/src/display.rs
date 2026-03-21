@@ -3,7 +3,7 @@ use core::sync::atomic::Ordering;
 use crate::keymap::{KEYMAP, get_next_idx, get_prev_idx};
 use crate::shared::{
     Button, CURRENT_INDEX, Direction, INPUT_CH, InputEvent, MODE_CH, MainMode, ModeChange,
-    MovementAxis, PointerMode, load_main_mode, load_movement_axis, load_pointer_mode,
+    Modes, MovementAxis, PointerMode, load_modes,
 };
 
 use defmt::*;
@@ -424,17 +424,16 @@ where
     Ok(())
 }
 
-fn draw_mouse_ui<D>(display: &mut D, ui_state: &UiState) -> Result<(), D::Error>
+fn draw_mouse_ui<D>(display: &mut D, ui_state: &UiState, modes: Modes) -> Result<(), D::Error>
 where
     D: DrawTarget<Color = BinaryColor>,
 {
-    let pointer_mode = load_pointer_mode();
     draw_base_ui(display, ui_state)?;
     draw_arrow(
         display,
         Point::new(20, 13),
         ui_state.button_d_pressed,
-        if pointer_mode == PointerMode::Move {
+        if modes.pointer_mode == PointerMode::Move {
             ArrowDirection::Up
         } else {
             ArrowDirection::Down
@@ -445,7 +444,7 @@ where
     draw_button_label(display, "M", Point::new(6, 12), ui_state.button_b_pressed)?;
     draw_button_label(display, "L", Point::new(6, 23), ui_state.button_c_pressed)?;
 
-    let y_offset = if pointer_mode == PointerMode::Move {
+    let y_offset = if modes.pointer_mode == PointerMode::Move {
         15
     } else {
         0
@@ -485,14 +484,12 @@ where
         ui_state.encoder_pressed,
     )?;
 
-    let movement_axis = load_movement_axis();
-
     Text::with_baseline("Scroll", Point::new(39, 2), TEXT_LG, Baseline::Top).draw(display)?;
     Text::with_baseline("Move", Point::new(46, 17), TEXT_LG, Baseline::Top).draw(display)?;
 
     const ARROW_X: i32 = 112;
     const ARROW_Y: i32 = 13;
-    let (points, dirs) = if movement_axis == MovementAxis::Y {
+    let (points, dirs) = if modes.movement_axis == MovementAxis::Y {
         (
             [
                 Point::new(ARROW_X - 3, ARROW_Y - 3),
@@ -559,7 +556,8 @@ async fn refresh_ui(
     ui_state: &mut UiState,
 ) -> Result<(), <MyDisplay as DrawTarget>::Error> {
     display.clear(BinaryColor::Off)?;
-    match load_main_mode() {
+    let modes = load_modes();
+    match modes.main_mode {
         MainMode::Keyboard => match &ui_state.rotation_animate {
             Some(direction) => {
                 handle_rotation(display, ui_state, direction).await?;
@@ -567,7 +565,7 @@ async fn refresh_ui(
             }
             None => draw_keyboard_ui(display, ui_state, 0, 0)?,
         },
-        MainMode::Mouse => draw_mouse_ui(display, ui_state)?,
+        MainMode::Mouse => draw_mouse_ui(display, ui_state, modes)?,
     }
     display.flush().await?;
 

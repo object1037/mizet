@@ -113,58 +113,77 @@ pub static INPUT_CH: PubSubChannel<CriticalSectionRawMutex, InputEvent, 4, 3, 6>
 pub static MODE_CH: PubSubChannel<CriticalSectionRawMutex, ModeChange, 1, 2, 1> =
     PubSubChannel::<CriticalSectionRawMutex, ModeChange, 1, 2, 1>::new();
 
-pub static MAIN_MODE: AtomicU8 = AtomicU8::new(MainMode::Keyboard as u8);
-pub static POINTER_MODE: AtomicU8 = AtomicU8::new(PointerMode::Move as u8);
-pub static MOVEMENT_AXIS: AtomicU8 = AtomicU8::new(MovementAxis::Y as u8);
+const MAIN_MODE_BIT: u8 = 0b0000_0001;
+const POINTER_MODE_BIT: u8 = 0b0000_0010;
+const MOVEMENT_AXIS_BIT: u8 = 0b0000_0100;
+
+pub static DEVICE_STATE: AtomicU8 = AtomicU8::new(0);
 pub static CURRENT_INDEX: AtomicUsize = AtomicUsize::new(0);
 
-pub fn load_main_mode() -> MainMode {
-    MainMode::try_from(MAIN_MODE.load(Ordering::Relaxed)).unwrap_or(MainMode::Keyboard)
+#[derive(Clone, Copy)]
+pub struct Modes {
+    pub main_mode: MainMode,
+    pub pointer_mode: PointerMode,
+    pub movement_axis: MovementAxis,
 }
 
-pub fn store_main_mode(mode: MainMode) {
-    MAIN_MODE.store(mode.into(), Ordering::Relaxed);
+fn main_mode_from_state(state: u8) -> MainMode {
+    if state & MAIN_MODE_BIT == 0 {
+        MainMode::Keyboard
+    } else {
+        MainMode::Mouse
+    }
+}
+
+fn pointer_mode_from_state(state: u8) -> PointerMode {
+    if state & POINTER_MODE_BIT == 0 {
+        PointerMode::Move
+    } else {
+        PointerMode::Scroll
+    }
+}
+
+fn movement_axis_from_state(state: u8) -> MovementAxis {
+    if state & MOVEMENT_AXIS_BIT == 0 {
+        MovementAxis::Y
+    } else {
+        MovementAxis::X
+    }
+}
+
+fn update_device_state(f: impl FnOnce(u8) -> u8) -> u8 {
+    critical_section::with(|_| {
+        let current = DEVICE_STATE.load(Ordering::Relaxed);
+        let next = f(current);
+        DEVICE_STATE.store(next, Ordering::Relaxed);
+        next
+    })
+}
+
+pub fn load_main_mode() -> MainMode {
+    main_mode_from_state(DEVICE_STATE.load(Ordering::Relaxed))
 }
 
 pub fn toggle_main_mode() -> MainMode {
-    let next = match load_main_mode() {
-        MainMode::Keyboard => MainMode::Mouse,
-        MainMode::Mouse => MainMode::Keyboard,
-    };
-    store_main_mode(next);
-    next
-}
-
-pub fn load_pointer_mode() -> PointerMode {
-    PointerMode::try_from(POINTER_MODE.load(Ordering::Relaxed)).unwrap_or(PointerMode::Move)
-}
-
-pub fn store_pointer_mode(mode: PointerMode) {
-    POINTER_MODE.store(mode.into(), Ordering::Relaxed);
+    let next = update_device_state(|state| state ^ MAIN_MODE_BIT);
+    main_mode_from_state(next)
 }
 
 pub fn toggle_pointer_mode() -> PointerMode {
-    let next = match load_pointer_mode() {
-        PointerMode::Move => PointerMode::Scroll,
-        PointerMode::Scroll => PointerMode::Move,
-    };
-    store_pointer_mode(next);
-    next
-}
-
-pub fn load_movement_axis() -> MovementAxis {
-    MovementAxis::try_from(MOVEMENT_AXIS.load(Ordering::Relaxed)).unwrap_or(MovementAxis::Y)
-}
-
-pub fn store_movement_axis(axis: MovementAxis) {
-    MOVEMENT_AXIS.store(axis.into(), Ordering::Relaxed);
+    let next = update_device_state(|state| state ^ POINTER_MODE_BIT);
+    pointer_mode_from_state(next)
 }
 
 pub fn toggle_movement_axis() -> MovementAxis {
-    let next = match load_movement_axis() {
-        MovementAxis::Y => MovementAxis::X,
-        MovementAxis::X => MovementAxis::Y,
-    };
-    store_movement_axis(next);
-    next
+    let next = update_device_state(|state| state ^ MOVEMENT_AXIS_BIT);
+    movement_axis_from_state(next)
+}
+
+pub fn load_modes() -> Modes {
+    let state = DEVICE_STATE.load(Ordering::Relaxed);
+    Modes {
+        main_mode: main_mode_from_state(state),
+        pointer_mode: pointer_mode_from_state(state),
+        movement_axis: movement_axis_from_state(state),
+    }
 }

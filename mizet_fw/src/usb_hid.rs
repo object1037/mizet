@@ -4,7 +4,7 @@ use crate::{
     keymap::KEYMAP,
     shared::{
         Button, CURRENT_INDEX, INPUT_CH, InputEvent, MODE_CH, MainMode, ModeChange,
-        MovementAxis, PointerMode, load_main_mode, load_movement_axis, load_pointer_mode,
+        MovementAxis, PointerMode, load_modes,
     },
 };
 
@@ -239,11 +239,11 @@ pub async fn usb_task(driver: Driver<'static, USB>) {
                     }
                 }
                 Either::First(event) => {
-                    let main_mode = load_main_mode();
+                    let modes = load_modes();
                     match event {
                         InputEvent::ButtonPress(button) => {
                             state.set_pressed(button, true);
-                            if main_mode == MainMode::Keyboard {
+                            if modes.main_mode == MainMode::Keyboard {
                                 if matches!(button, Button::A | Button::B | Button::C | Button::D) {
                                     let report =
                                         keyboard_report(state.keyboard_modifier(), encoder_keycode);
@@ -265,7 +265,7 @@ pub async fn usb_task(driver: Driver<'static, USB>) {
                         }
                         InputEvent::ButtonRelease(button) => {
                             state.set_pressed(button, false);
-                            if main_mode == MainMode::Keyboard {
+                            if modes.main_mode == MainMode::Keyboard {
                                 match button {
                                     Button::A | Button::B | Button::C | Button::D => {
                                         let report = keyboard_report(
@@ -293,9 +293,7 @@ pub async fn usb_task(driver: Driver<'static, USB>) {
                             }
                         }
                         InputEvent::Rotary(direction) => {
-                            if main_mode == MainMode::Mouse {
-                                let pointer_mode = load_pointer_mode();
-                                let movement_axis = load_movement_axis();
+                            if modes.main_mode == MainMode::Mouse {
                                 let now = Instant::now();
                                 if let Some(last) = last_rotary_at {
                                     let dt_ms = (now - last).as_millis();
@@ -320,8 +318,8 @@ pub async fn usb_task(driver: Driver<'static, USB>) {
                                 let move_step = rotary_mode.move_step();
                                 let scroll_step = rotary_mode.scroll_step();
 
-                                let report = if pointer_mode == PointerMode::Move {
-                                    if movement_axis == MovementAxis::Y {
+                                let report = if modes.pointer_mode == PointerMode::Move {
+                                    if modes.movement_axis == MovementAxis::Y {
                                         mouse_report(
                                             state.mouse_buttons(),
                                             0,
@@ -338,7 +336,7 @@ pub async fn usb_task(driver: Driver<'static, USB>) {
                                             0,
                                         )
                                     }
-                                } else if movement_axis == MovementAxis::Y {
+                                } else if modes.movement_axis == MovementAxis::Y {
                                     mouse_report(state.mouse_buttons(), 0, 0, scroll_step * dir, 0)
                                 } else {
                                     mouse_report(state.mouse_buttons(), 0, 0, 0, scroll_step * dir)
