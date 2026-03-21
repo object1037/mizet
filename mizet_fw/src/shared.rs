@@ -20,7 +20,7 @@ pub enum Direction {
 }
 
 #[derive(Clone)]
-pub enum UiEvent {
+pub enum InputEvent {
     ButtonPress(Button),
     ButtonRelease(Button),
     Rotary(Direction),
@@ -32,8 +32,8 @@ pub enum ModeChange {
     SubMode,
 }
 
-pub static EVENT_CH: PubSubChannel<CriticalSectionRawMutex, UiEvent, 4, 3, 6> =
-    PubSubChannel::<CriticalSectionRawMutex, UiEvent, 4, 3, 6>::new();
+pub static INPUT_CH: PubSubChannel<CriticalSectionRawMutex, InputEvent, 4, 3, 6> =
+    PubSubChannel::<CriticalSectionRawMutex, InputEvent, 4, 3, 6>::new();
 
 pub static MODE_CH: PubSubChannel<CriticalSectionRawMutex, ModeChange, 1, 2, 1> =
     PubSubChannel::<CriticalSectionRawMutex, ModeChange, 1, 2, 1>::new();

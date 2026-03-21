@@ -19,7 +19,7 @@ The firmware uses the Embassy framework.
 - `mizet_fw/src/keymap.rs`: Contains the key mapping.
 - `mizet_fw/src/button.rs`: Contains task for handling button inputs.
 - `mizet_fw/src/encoder.rs`: Contains task for handling the rotary encoder input.
-- `mizet_fw/src/usb.rs`: Contains task for handling USB HID communication.
+- `mizet_fw/src/usb_hid.rs`: Contains task for handling USB HID communication.
 - `mizet_fw/src/shared.rs`: Contains shared data structures and state used across different tasks in the firmware.
 
 ## Modes

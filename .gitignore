@@ -4,3 +4,4 @@
 hardware/mizet-backups
 hardware/fp-info-cache
 target
+.worktrees/

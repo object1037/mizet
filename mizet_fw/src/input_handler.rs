@@ -1,7 +1,8 @@
 use core::sync::atomic::Ordering;
 
 use crate::shared::{
-    Button, EVENT_CH, IS_KEYBOARD_MODE, IS_MOVE_MODE, IS_MOVEMENT_Y, MODE_CH, ModeChange, UiEvent,
+    Button, INPUT_CH, IS_KEYBOARD_MODE, IS_MOVE_MODE, IS_MOVEMENT_Y, InputEvent, MODE_CH,
+    ModeChange,
 };
 
 use defmt::*;
@@ -12,7 +13,7 @@ use {defmt_rtt as _, panic_probe as _};
 #[embassy_executor::task]
 pub async fn input_handler_task() {
     let mode_publisher = MODE_CH.publisher().unwrap();
-    let mut subscriber = EVENT_CH.subscriber().unwrap();
+    let mut subscriber = INPUT_CH.subscriber().unwrap();
 
     let mut button_d_pressed: bool = false;
     let mut button_d_press_start: Option<Instant> = None;
@@ -21,7 +22,7 @@ pub async fn input_handler_task() {
         let event = subscriber.next_message_pure().await;
 
         match event {
-            UiEvent::ButtonPress(button) => {
+            InputEvent::ButtonPress(button) => {
                 if let Button::D = button {
                     button_d_pressed = true;
                     button_d_press_start = Some(Instant::now());
@@ -43,7 +44,7 @@ pub async fn input_handler_task() {
                     }
                 }
             }
-            UiEvent::ButtonRelease(button) => {
+            InputEvent::ButtonRelease(button) => {
                 if let Button::D = button {
                     if let Some(start_time) = button_d_press_start {
                         let press_duration = Instant::now() - start_time;

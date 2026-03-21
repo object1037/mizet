@@ -7,14 +7,14 @@ mod encoder;
 mod input_handler;
 mod keymap;
 mod shared;
-mod usb;
+mod usb_hid;
 
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
-use embassy_rp::peripherals::{I2C0, PIO0};
+use embassy_rp::peripherals::{I2C0, PIO0, USB};
 use embassy_rp::pio_programs::rotary_encoder::{PioEncoder, PioEncoderProgram};
-use embassy_rp::{gpio, i2c, pio};
+use embassy_rp::{gpio, i2c, pio, usb};
 use gpio::{Input, Pull};
 use shared::Button;
 use ssd1306::{I2CDisplayInterface, Ssd1306Async, prelude::*};
@@ -23,6 +23,7 @@ use {defmt_rtt as _, panic_probe as _};
 bind_interrupts!(struct Irqs {
    PIO0_IRQ_0 => pio::InterruptHandler<PIO0>;
    I2C0_IRQ => i2c::InterruptHandler<I2C0>;
+   USBCTRL_IRQ => usb::InterruptHandler<USB>;
 });
 
 #[embassy_executor::main]
@@ -59,6 +60,8 @@ async fn main(spawner: Spawner) {
     let i2c_bus = i2c::I2c::new_async(p.I2C0, scl, sda, Irqs, i2c_config);
     info!("Configured I2C");
 
+    let usb_driver = usb::Driver::new(p.USB, Irqs);
+
     // Display init
     let display_interface = I2CDisplayInterface::new(i2c_bus);
     let display = Ssd1306Async::new(
@@ -86,5 +89,5 @@ async fn main(spawner: Spawner) {
     spawner.spawn(encoder::encoder_task(encoder)).unwrap();
     spawner.spawn(display::display_task(display)).unwrap();
     spawner.spawn(input_handler::input_handler_task()).unwrap();
-    spawner.spawn(usb::usb_task()).unwrap();
+    spawner.spawn(usb_hid::usb_task(usb_driver)).unwrap();
 }

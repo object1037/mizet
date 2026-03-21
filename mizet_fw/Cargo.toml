@@ -17,4 +17,4 @@ embassy-usb = { version = "0.5.1", features = ["defmt"] }
 embedded-graphics = "0.8.2"
 panic-probe = "1.0.0"
 ssd1306 = { version = "0.10.0", features = ["async"] }
-usbd-hid = { version = "0.9.0", features = ["defmt"] }
+usbd-hid = { version = "0.8.2", features = ["defmt"] }

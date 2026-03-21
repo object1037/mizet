@@ -2,8 +2,8 @@ use core::sync::atomic::Ordering;
 
 use crate::keymap::{KEYMAP, get_next_idx, get_prev_idx};
 use crate::shared::{
-    Button, CURRENT_INDEX, Direction, EVENT_CH, IS_KEYBOARD_MODE, IS_MOVE_MODE, IS_MOVEMENT_Y,
-    MODE_CH, ModeChange, UiEvent,
+    Button, CURRENT_INDEX, Direction, INPUT_CH, IS_KEYBOARD_MODE, IS_MOVE_MODE, IS_MOVEMENT_Y,
+    InputEvent, MODE_CH, ModeChange,
 };
 
 use defmt::*;
@@ -77,10 +77,10 @@ struct UiState {
 }
 
 impl UiState {
-    fn set_state(&mut self, event: UiEvent) {
+    fn set_state(&mut self, event: InputEvent) {
         match event {
-            UiEvent::ButtonPress(button) | UiEvent::ButtonRelease(button) => {
-                let pressed = matches!(event, UiEvent::ButtonPress(_));
+            InputEvent::ButtonPress(button) | InputEvent::ButtonRelease(button) => {
+                let pressed = matches!(event, InputEvent::ButtonPress(_));
                 match button {
                     Button::A => self.button_a_pressed = pressed,
                     Button::B => self.button_b_pressed = pressed,
@@ -89,7 +89,7 @@ impl UiState {
                     Button::Encoder => self.encoder_pressed = pressed,
                 }
             }
-            UiEvent::Rotary(direction) => {
+            InputEvent::Rotary(direction) => {
                 self.rotation_animate = Some(direction);
             }
         }
@@ -605,7 +605,7 @@ pub async fn display_task(mut display: MyDisplay) {
 
     refresh_initial_ui(&mut display, &ui_state).await.unwrap();
 
-    let mut event_subscriber = EVENT_CH.subscriber().unwrap();
+    let mut event_subscriber = INPUT_CH.subscriber().unwrap();
     let mut mode_subscriber = MODE_CH.subscriber().unwrap();
 
     loop {
