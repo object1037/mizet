@@ -13,13 +13,40 @@ use embassy_futures::join::join;
 use embassy_futures::select::{Either, select};
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::Driver;
+use embassy_time::Instant;
 use embassy_usb::class::hid::{HidWriter, State};
 use embassy_usb::{Builder, Config};
 use usbd_hid::descriptor::{KeyboardReport, MouseReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
 
-const MOUSE_STEP: i8 = 10;
-const SCROLL_STEP: i8 = 1;
+const ENTER_STRIDE_DT_MS: u64 = 70;
+const EXIT_STRIDE_DT_MS: u64 = 120;
+const PRECISE_MOVE_STEP: i8 = 5;
+const STRIDE_MOVE_STEP: i8 = 30;
+const PRECISE_SCROLL_STEP: i8 = 1;
+const STRIDE_SCROLL_STEP: i8 = 1;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RotaryDeltaMode {
+    Precise,
+    Stride,
+}
+
+impl RotaryDeltaMode {
+    fn move_step(self) -> i8 {
+        match self {
+            Self::Precise => PRECISE_MOVE_STEP,
+            Self::Stride => STRIDE_MOVE_STEP,
+        }
+    }
+
+    fn scroll_step(self) -> i8 {
+        match self {
+            Self::Precise => PRECISE_SCROLL_STEP,
+            Self::Stride => STRIDE_SCROLL_STEP,
+        }
+    }
+}
 
 #[derive(Default)]
 struct UsbInputState {
@@ -178,6 +205,8 @@ pub async fn usb_task(driver: Driver<'static, USB>) {
     let mut mode_subscriber = MODE_CH.subscriber().unwrap();
     let mut state = UsbInputState::default();
     let mut encoder_keycode: Option<u8> = None;
+    let mut rotary_mode = RotaryDeltaMode::Precise;
+    let mut last_rotary_at: Option<Instant> = None;
 
     let usb_fut = usb.run();
     let hid_fut = async {
@@ -192,6 +221,8 @@ pub async fn usb_task(driver: Driver<'static, USB>) {
                     if let ModeChange::MainMode = mode {
                         state.clear();
                         encoder_keycode = None;
+                        rotary_mode = RotaryDeltaMode::Precise;
+                        last_rotary_at = None;
                         send_keyboard(
                             &mut keyboard_writer,
                             &keyboard_release_report(0),
@@ -225,7 +256,7 @@ pub async fn usb_task(driver: Driver<'static, USB>) {
                                     let report =
                                         keyboard_report(state.keyboard_modifier(), encoder_keycode);
                                     send_keyboard(&mut keyboard_writer, &report, "key down").await;
-                                    info!("USB: key down keycode={}", encoder_keycode);
+                                    info!("USB: key down keycode={}", keycode);
                                 }
                             } else if matches!(button, Button::A | Button::B | Button::C) {
                                 let report = mouse_report(state.mouse_buttons(), 0, 0, 0, 0);
@@ -265,33 +296,52 @@ pub async fn usb_task(driver: Driver<'static, USB>) {
                             if !is_keyboard_mode {
                                 let is_move_mode = IS_MOVE_MODE.load(Ordering::Relaxed);
                                 let is_y_axis = IS_MOVEMENT_Y.load(Ordering::Relaxed);
+                                let now = Instant::now();
+                                if let Some(last) = last_rotary_at {
+                                    let dt_ms = (now - last).as_millis();
+                                    match rotary_mode {
+                                        RotaryDeltaMode::Precise if dt_ms <= ENTER_STRIDE_DT_MS => {
+                                            rotary_mode = RotaryDeltaMode::Stride;
+                                            info!("USB: rotary mode -> stride (dt={}ms)", dt_ms);
+                                        }
+                                        RotaryDeltaMode::Stride if dt_ms >= EXIT_STRIDE_DT_MS => {
+                                            rotary_mode = RotaryDeltaMode::Precise;
+                                            info!("USB: rotary mode -> precise (dt={}ms)", dt_ms);
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                last_rotary_at = Some(now);
+
                                 let dir = match direction {
                                     crate::shared::Direction::Clockwise => 1,
                                     crate::shared::Direction::CounterClockwise => -1,
                                 };
+                                let move_step = rotary_mode.move_step();
+                                let scroll_step = rotary_mode.scroll_step();
 
                                 let report = if is_move_mode {
                                     if is_y_axis {
                                         mouse_report(
                                             state.mouse_buttons(),
                                             0,
-                                            MOUSE_STEP * dir,
+                                            move_step * dir,
                                             0,
                                             0,
                                         )
                                     } else {
                                         mouse_report(
                                             state.mouse_buttons(),
-                                            MOUSE_STEP * dir,
+                                            move_step * dir,
                                             0,
                                             0,
                                             0,
                                         )
                                     }
                                 } else if is_y_axis {
-                                    mouse_report(state.mouse_buttons(), 0, 0, SCROLL_STEP * dir, 0)
+                                    mouse_report(state.mouse_buttons(), 0, 0, scroll_step * dir, 0)
                                 } else {
-                                    mouse_report(state.mouse_buttons(), 0, 0, 0, SCROLL_STEP * dir)
+                                    mouse_report(state.mouse_buttons(), 0, 0, 0, scroll_step * dir)
                                 };
 
                                 send_mouse(&mut mouse_writer, &report, "rotary action").await;
