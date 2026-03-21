@@ -263,6 +263,8 @@ where
         0b001000_00,
         0b001000_00,
     ];
+    #[rustfmt::skip]
+    #[allow(clippy::unusual_byte_groupings)]
     const ARROW_H_DATA: &[u8] = &[
         0b001000_00,
         0b010000_00,
