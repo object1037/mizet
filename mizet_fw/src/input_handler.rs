@@ -1,8 +1,6 @@
-use core::sync::atomic::Ordering;
-
 use crate::shared::{
-    Button, INPUT_CH, IS_KEYBOARD_MODE, IS_MOVE_MODE, IS_MOVEMENT_Y, InputEvent, MODE_CH,
-    ModeChange,
+    Button, INPUT_CH, InputEvent, MODE_CH, MainMode, ModeChange, load_main_mode,
+    toggle_main_mode, toggle_movement_axis, toggle_pointer_mode,
 };
 
 use defmt::*;
@@ -29,15 +27,13 @@ pub async fn input_handler_task() {
                 }
 
                 if let Button::Encoder = button {
-                    let is_keyboard_mode = IS_KEYBOARD_MODE.load(Ordering::Relaxed);
-                    if !is_keyboard_mode {
+                    let main_mode = load_main_mode();
+                    if main_mode == MainMode::Mouse {
                         if button_d_pressed {
-                            let is_move_mode = IS_MOVE_MODE.load(Ordering::Relaxed);
-                            IS_MOVE_MODE.store(!is_move_mode, Ordering::Relaxed);
+                            toggle_pointer_mode();
                             info!("Encoder + D: toggling move/scroll mode");
                         } else {
-                            let is_movement_y = IS_MOVEMENT_Y.load(Ordering::Relaxed);
-                            IS_MOVEMENT_Y.store(!is_movement_y, Ordering::Relaxed);
+                            toggle_movement_axis();
                             info!("Encoder: toggling X/Y axis");
                         }
                         mode_publisher.publish(ModeChange::SubMode).await;
@@ -48,8 +44,7 @@ pub async fn input_handler_task() {
                 if let Some(start_time) = button_d_press_start {
                     let press_duration = Instant::now() - start_time;
                     if press_duration.as_millis() < 250 {
-                        let is_keyboard_mode = IS_KEYBOARD_MODE.load(Ordering::Relaxed);
-                        IS_KEYBOARD_MODE.store(!is_keyboard_mode, Ordering::Relaxed);
+                        toggle_main_mode();
                         mode_publisher.publish(ModeChange::MainMode).await;
                         info!("Button D tapped: toggling keyboard/mouse mode");
                     }
