@@ -2,8 +2,8 @@ use core::sync::atomic::Ordering;
 
 use crate::keymap::{KEYMAP, get_next_idx, get_prev_idx};
 use crate::shared::{
-    Button, CURRENT_INDEX, Direction, INPUT_CH, InputEvent, MODE_CH, MainMode, ModeChange,
-    Modes, MovementAxis, PointerMode, load_modes,
+    Button, CURRENT_INDEX, Direction, INPUT_CH, InputEvent, MODE_CH, MainMode, ModeChange, Modes,
+    MovementAxis, PointerMode, load_modes,
 };
 
 use defmt::*;
@@ -166,6 +166,55 @@ where
     Ok(())
 }
 
+fn draw_key_char<D>(
+    display: &mut D,
+    key: &str,
+    x: i32,
+    y: i32,
+    style: &MonoTextStyle<BinaryColor>,
+) -> Result<(), D::Error>
+where
+    D: DrawTarget<Color = BinaryColor>,
+{
+    const ARROW_OFFSET_X: i32 = 1;
+    const ARROW_OFFSET_Y: i32 = 3;
+    if key.starts_with("ARROW_") {
+        if key.ends_with("UP") {
+            draw_arrow(
+                display,
+                Point::new(x + ARROW_OFFSET_X, y + ARROW_OFFSET_Y),
+                false,
+                ArrowDirection::Up,
+            )?;
+        } else if key.ends_with("DOWN") {
+            draw_arrow(
+                display,
+                Point::new(x + ARROW_OFFSET_X, y + ARROW_OFFSET_Y),
+                false,
+                ArrowDirection::Down,
+            )?;
+        } else if key.ends_with("LEFT") {
+            draw_arrow(
+                display,
+                Point::new(x + ARROW_OFFSET_X, y + ARROW_OFFSET_Y),
+                false,
+                ArrowDirection::Left,
+            )?;
+        } else if key.ends_with("RIGHT") {
+            draw_arrow(
+                display,
+                Point::new(x + ARROW_OFFSET_X, y + ARROW_OFFSET_Y),
+                false,
+                ArrowDirection::Right,
+            )?;
+        }
+    } else {
+        Text::with_baseline(key, Point::new(x, y), *style, Baseline::Top).draw(display)?;
+    }
+
+    Ok(())
+}
+
 fn draw_key<D>(
     display: &mut D,
     index: usize,
@@ -175,29 +224,19 @@ fn draw_key<D>(
 where
     D: DrawTarget<Color = BinaryColor>,
 {
-    let has_middle = KEYMAP[index].middle_key.is_some();
+    let shifted_key = KEYMAP[index].shifted_key;
+    let middle_key = KEYMAP[index].middle_key;
+    let key = KEYMAP[index].key;
+    let has_middle = middle_key.is_some();
     let y_top = if has_middle { 0 } else { 2 };
     let y_bottom = if has_middle { 20 } else { 18 };
 
-    Text::with_baseline(
-        KEYMAP[index].shifted_key,
-        Point::new(x, y_top),
-        *style,
-        Baseline::Top,
-    )
-    .draw(display)?;
+    draw_key_char(display, shifted_key, x, y_top, style)?;
 
-    if let Some(middle_key) = KEYMAP[index].middle_key {
-        Text::with_baseline(middle_key, Point::new(x, 10), *style, Baseline::Top).draw(display)?;
+    if let Some(middle_key) = middle_key {
+        draw_key_char(display, middle_key, x, 10, style)?;
     }
-
-    Text::with_baseline(
-        KEYMAP[index].key,
-        Point::new(x, y_bottom),
-        *style,
-        Baseline::Top,
-    )
-    .draw(display)?;
+    draw_key_char(display, key, x, y_bottom, style)?;
 
     Ok(())
 }
