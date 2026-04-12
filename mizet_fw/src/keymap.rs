@@ -7,7 +7,7 @@ pub struct KeyInfo {
     pub middle_key: Option<&'static str>,
 }
 
-pub static KEY_LENGTH: usize = 62;
+pub static KEY_LENGTH: usize = 75;
 
 pub fn get_next_idx(current_index: usize) -> usize {
     if current_index == KEY_LENGTH - 1 {
@@ -340,6 +340,72 @@ pub static KEYMAP: [KeyInfo; KEY_LENGTH] = [
         middle_key: None,
     },
     KeyInfo {
+        keycode: KeyboardUsage::KeyboardLeftArrow,
+        shifted_key: "L",
+        middle_key: Some("e"),
+        key: "f",
+    },
+    KeyInfo {
+        keycode: KeyboardUsage::KeyboardDownArrow,
+        shifted_key: "D",
+        middle_key: Some("w"),
+        key: "n",
+    },
+    KeyInfo {
+        keycode: KeyboardUsage::KeyboardUpArrow,
+        shifted_key: "U",
+        middle_key: None,
+        key: "p",
+    },
+    KeyInfo {
+        keycode: KeyboardUsage::KeyboardRightArrow,
+        shifted_key: "R",
+        middle_key: Some("g"),
+        key: "t",
+    },
+    KeyInfo {
+        keycode: KeyboardUsage::KeyboardPrintScreen,
+        shifted_key: "S",
+        middle_key: Some("c"),
+        key: "r",
+    },
+    KeyInfo {
+        keycode: KeyboardUsage::KeyboardInsert,
+        shifted_key: "I",
+        middle_key: Some("n"),
+        key: "s",
+    },
+    KeyInfo {
+        keycode: KeyboardUsage::KeyboardDelete,
+        shifted_key: "D",
+        middle_key: Some("e"),
+        key: "l",
+    },
+    KeyInfo {
+        keycode: KeyboardUsage::KeyboardHome,
+        shifted_key: "H",
+        middle_key: Some("o"),
+        key: "m",
+    },
+    KeyInfo {
+        keycode: KeyboardUsage::KeyboardEnd,
+        shifted_key: "E",
+        middle_key: Some("n"),
+        key: "d",
+    },
+    KeyInfo {
+        keycode: KeyboardUsage::KeyboardPageDown,
+        shifted_key: "P",
+        middle_key: Some("d"),
+        key: "n",
+    },
+    KeyInfo {
+        keycode: KeyboardUsage::KeyboardPageUp,
+        shifted_key: "P",
+        middle_key: Some("u"),
+        key: "p",
+    },
+    KeyInfo {
         keycode: KeyboardUsage::KeyboardF1,
         shifted_key: "F",
         key: "1",
@@ -396,7 +462,19 @@ pub static KEYMAP: [KeyInfo; KEY_LENGTH] = [
     KeyInfo {
         keycode: KeyboardUsage::KeyboardF10,
         shifted_key: "F",
+        middle_key: Some("1"),
         key: "0",
-        middle_key: None,
+    },
+    KeyInfo {
+        keycode: KeyboardUsage::KeyboardF11,
+        shifted_key: "F",
+        middle_key: Some("1"),
+        key: "1",
+    },
+    KeyInfo {
+        keycode: KeyboardUsage::KeyboardF12,
+        shifted_key: "F",
+        middle_key: Some("1"),
+        key: "2",
     },
 ];
