@@ -3,8 +3,8 @@ use core::sync::atomic::Ordering;
 use crate::{
     keymap::KEYMAP,
     shared::{
-        Button, CURRENT_INDEX, INPUT_CH, InputEvent, MODE_CH, MainMode, ModeChange, MovementAxis,
-        PointerMode, load_modes,
+        Button, CURRENT_INDEX, Direction, INPUT_CH, InputEvent, MODE_CH, MainMode, ModeChange,
+        MovementAxis, PointerMode, load_modes,
     },
 };
 
@@ -19,38 +19,108 @@ use embassy_usb::{Builder, Config};
 use usbd_hid::descriptor::{KeyboardReport, MouseReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
 
-const ENTER_NORMAL_DT_MS: u64 = 140;
-const EXIT_NORMAL_DT_MS: u64 = 240;
-const ENTER_STRIDE_DT_MS: u64 = 70;
-const EXIT_STRIDE_DT_MS: u64 = 120;
-const PRECISE_MOVE_STEP: i8 = 5;
-const NORMAL_MOVE_STEP: i8 = 10;
-const STRIDE_MOVE_STEP: i8 = 30;
-const PRECISE_SCROLL_STEP: i8 = 1;
-const STRIDE_SCROLL_STEP: i8 = 1;
+/// Number of recent inter-detent intervals averaged for speed estimate.
+const ROTARY_DT_HISTORY_LEN: usize = 2;
+/// Average dt at or below this (ms) maps to maximum move step.
+const ROTARY_DT_FAST_MS: u32 = 70;
+/// Average dt at or above this (ms) maps to minimum move step.
+const ROTARY_DT_SLOW_MS: u32 = 240;
+/// Gap since last detent above this (ms) clears history (stall).
+const ROTARY_STALL_MS: u64 = 240;
+const MIN_MOVE_STEP: i8 = 5;
+const MAX_MOVE_STEP: i8 = 30;
+const SCROLL_STEP: i8 = 1;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum RotaryDeltaMode {
-    Precise,
-    Normal,
-    Stride,
+struct RotarySpeedEstimator {
+    last_at: Option<Instant>,
+    last_dir: Option<Direction>,
+    dts: [u32; ROTARY_DT_HISTORY_LEN],
+    len: u8,
 }
 
-impl RotaryDeltaMode {
-    fn move_step(self) -> i8 {
-        match self {
-            Self::Precise => PRECISE_MOVE_STEP,
-            Self::Normal => NORMAL_MOVE_STEP,
-            Self::Stride => STRIDE_MOVE_STEP,
+impl Default for RotarySpeedEstimator {
+    fn default() -> Self {
+        Self {
+            last_at: None,
+            last_dir: None,
+            dts: [0; ROTARY_DT_HISTORY_LEN],
+            len: 0,
         }
+    }
+}
+
+impl RotarySpeedEstimator {
+    fn reset(&mut self) {
+        self.last_at = None;
+        self.last_dir = None;
+        self.len = 0;
     }
 
-    fn scroll_step(self) -> i8 {
-        match self {
-            Self::Precise => PRECISE_SCROLL_STEP,
-            _ => STRIDE_SCROLL_STEP,
+    /// Returns pixel move step magnitude (5..=30) for this detent from recent rotation timing.
+    fn move_step_for_tick(&mut self, now: Instant, direction: &Direction) -> i8 {
+        let Some(last) = self.last_at else {
+            self.last_at = Some(now);
+            self.last_dir = Some(direction.clone());
+            return MIN_MOVE_STEP;
+        };
+
+        let dt_ms = (now - last).as_millis();
+
+        if dt_ms > ROTARY_STALL_MS {
+            self.len = 0;
+            self.last_at = Some(now);
+            self.last_dir = Some(direction.clone());
+            return MIN_MOVE_STEP;
         }
+
+        let direction_flipped = matches!(
+            (self.last_dir.as_ref(), direction),
+            (Some(Direction::Clockwise), Direction::CounterClockwise)
+                | (Some(Direction::CounterClockwise), Direction::Clockwise)
+        );
+        if direction_flipped {
+            self.len = 0;
+        }
+
+        let dt_u32 = dt_ms as u32;
+        let n = self.len as usize;
+        if n < ROTARY_DT_HISTORY_LEN {
+            self.dts[n] = dt_u32;
+            self.len += 1;
+        } else {
+            for i in 1..ROTARY_DT_HISTORY_LEN {
+                self.dts[i - 1] = self.dts[i];
+            }
+            self.dts[ROTARY_DT_HISTORY_LEN - 1] = dt_u32;
+        }
+
+        let count = self.len as u64;
+        let sum: u64 = self.dts[..self.len as usize]
+            .iter()
+            .map(|&x| x as u64)
+            .sum();
+        let avg_dt = (sum / count) as u32;
+
+        let step = map_avg_dt_to_move_step(avg_dt);
+
+        self.last_at = Some(now);
+        self.last_dir = Some(direction.clone());
+        step
     }
+}
+
+fn map_avg_dt_to_move_step(avg_dt: u32) -> i8 {
+    if avg_dt <= ROTARY_DT_FAST_MS {
+        return MAX_MOVE_STEP;
+    }
+    if avg_dt >= ROTARY_DT_SLOW_MS {
+        return MIN_MOVE_STEP;
+    }
+    let span = (ROTARY_DT_SLOW_MS - ROTARY_DT_FAST_MS) as u64;
+    let num = (avg_dt - ROTARY_DT_FAST_MS) as u64;
+    let delta = (MAX_MOVE_STEP - MIN_MOVE_STEP) as u64;
+    let sub = (num * delta / span) as i8;
+    MAX_MOVE_STEP - sub
 }
 
 #[derive(Default)]
@@ -210,8 +280,7 @@ pub async fn usb_task(driver: Driver<'static, USB>) {
     let mut mode_subscriber = MODE_CH.subscriber().unwrap();
     let mut state = UsbInputState::default();
     let mut encoder_keycode: Option<u8> = None;
-    let mut rotary_mode = RotaryDeltaMode::Precise;
-    let mut last_rotary_at: Option<Instant> = None;
+    let mut rotary_speed = RotarySpeedEstimator::default();
 
     let usb_fut = usb.run();
     let hid_fut = async {
@@ -226,8 +295,7 @@ pub async fn usb_task(driver: Driver<'static, USB>) {
                     if let ModeChange::MainMode = mode {
                         state.clear();
                         encoder_keycode = None;
-                        rotary_mode = RotaryDeltaMode::Precise;
-                        last_rotary_at = None;
+                        rotary_speed.reset();
                         send_keyboard(
                             &mut keyboard_writer,
                             &keyboard_release_report(0),
@@ -300,64 +368,20 @@ pub async fn usb_task(driver: Driver<'static, USB>) {
                         InputEvent::Rotary(direction) => {
                             if modes.main_mode == MainMode::Mouse {
                                 let now = Instant::now();
-                                if let Some(last) = last_rotary_at {
-                                    let dt_ms = (now - last).as_millis();
-                                    match rotary_mode {
-                                        RotaryDeltaMode::Precise
-                                            if (ENTER_STRIDE_DT_MS..=ENTER_NORMAL_DT_MS)
-                                                .contains(&dt_ms) =>
-                                        {
-                                            rotary_mode = RotaryDeltaMode::Normal;
-                                            info!("USB: rotary mode -> normal (dt={}ms)", dt_ms);
-                                        }
-                                        RotaryDeltaMode::Precise | RotaryDeltaMode::Normal
-                                            if dt_ms <= ENTER_STRIDE_DT_MS =>
-                                        {
-                                            rotary_mode = RotaryDeltaMode::Stride;
-                                            info!("USB: rotary mode -> stride (dt={}ms)", dt_ms);
-                                        }
-                                        RotaryDeltaMode::Stride
-                                            if (EXIT_STRIDE_DT_MS..EXIT_NORMAL_DT_MS)
-                                                .contains(&dt_ms) =>
-                                        {
-                                            rotary_mode = RotaryDeltaMode::Normal;
-                                            info!("USB: rotary mode -> normal (dt={}ms)", dt_ms);
-                                        }
-                                        RotaryDeltaMode::Normal | RotaryDeltaMode::Stride
-                                            if dt_ms >= EXIT_NORMAL_DT_MS =>
-                                        {
-                                            rotary_mode = RotaryDeltaMode::Precise;
-                                            info!("USB: rotary mode -> precise (dt={}ms)", dt_ms);
-                                        }
-                                        _ => {}
-                                    }
-                                }
-                                last_rotary_at = Some(now);
+                                let move_step = rotary_speed.move_step_for_tick(now, &direction);
 
                                 let dir = match direction {
-                                    crate::shared::Direction::Clockwise => 1,
-                                    crate::shared::Direction::CounterClockwise => -1,
+                                    Direction::Clockwise => 1,
+                                    Direction::CounterClockwise => -1,
                                 };
-                                let move_step = rotary_mode.move_step();
-                                let scroll_step = rotary_mode.scroll_step();
+                                let scroll_step = SCROLL_STEP;
 
                                 let report = if modes.pointer_mode == PointerMode::Move {
+                                    let step = move_step * dir;
                                     if modes.movement_axis == MovementAxis::Y {
-                                        mouse_report(
-                                            state.mouse_buttons(),
-                                            0,
-                                            move_step * dir,
-                                            0,
-                                            0,
-                                        )
+                                        mouse_report(state.mouse_buttons(), 0, step, 0, 0)
                                     } else {
-                                        mouse_report(
-                                            state.mouse_buttons(),
-                                            move_step * dir,
-                                            0,
-                                            0,
-                                            0,
-                                        )
+                                        mouse_report(state.mouse_buttons(), step, 0, 0, 0)
                                     }
                                 } else if modes.movement_axis == MovementAxis::Y {
                                     mouse_report(state.mouse_buttons(), 0, 0, scroll_step * dir, 0)
