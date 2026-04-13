@@ -3,8 +3,8 @@ use core::sync::atomic::Ordering;
 use crate::{
     keymap::KEYMAP,
     shared::{
-        Button, CURRENT_INDEX, INPUT_CH, InputEvent, MODE_CH, MainMode, ModeChange,
-        MovementAxis, PointerMode, load_modes,
+        Button, CURRENT_INDEX, INPUT_CH, InputEvent, MODE_CH, MainMode, ModeChange, MovementAxis,
+        PointerMode, load_modes,
     },
 };
 
@@ -19,9 +19,12 @@ use embassy_usb::{Builder, Config};
 use usbd_hid::descriptor::{KeyboardReport, MouseReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
 
+const ENTER_NORMAL_DT_MS: u64 = 140;
+const EXIT_NORMAL_DT_MS: u64 = 240;
 const ENTER_STRIDE_DT_MS: u64 = 70;
 const EXIT_STRIDE_DT_MS: u64 = 120;
 const PRECISE_MOVE_STEP: i8 = 5;
+const NORMAL_MOVE_STEP: i8 = 10;
 const STRIDE_MOVE_STEP: i8 = 30;
 const PRECISE_SCROLL_STEP: i8 = 1;
 const STRIDE_SCROLL_STEP: i8 = 1;
@@ -29,6 +32,7 @@ const STRIDE_SCROLL_STEP: i8 = 1;
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum RotaryDeltaMode {
     Precise,
+    Normal,
     Stride,
 }
 
@@ -36,6 +40,7 @@ impl RotaryDeltaMode {
     fn move_step(self) -> i8 {
         match self {
             Self::Precise => PRECISE_MOVE_STEP,
+            Self::Normal => NORMAL_MOVE_STEP,
             Self::Stride => STRIDE_MOVE_STEP,
         }
     }
@@ -43,7 +48,7 @@ impl RotaryDeltaMode {
     fn scroll_step(self) -> i8 {
         match self {
             Self::Precise => PRECISE_SCROLL_STEP,
-            Self::Stride => STRIDE_SCROLL_STEP,
+            _ => STRIDE_SCROLL_STEP,
         }
     }
 }
@@ -298,11 +303,29 @@ pub async fn usb_task(driver: Driver<'static, USB>) {
                                 if let Some(last) = last_rotary_at {
                                     let dt_ms = (now - last).as_millis();
                                     match rotary_mode {
-                                        RotaryDeltaMode::Precise if dt_ms <= ENTER_STRIDE_DT_MS => {
+                                        RotaryDeltaMode::Precise
+                                            if (ENTER_STRIDE_DT_MS..=ENTER_NORMAL_DT_MS)
+                                                .contains(&dt_ms) =>
+                                        {
+                                            rotary_mode = RotaryDeltaMode::Normal;
+                                            info!("USB: rotary mode -> normal (dt={}ms)", dt_ms);
+                                        }
+                                        RotaryDeltaMode::Precise | RotaryDeltaMode::Normal
+                                            if dt_ms <= ENTER_STRIDE_DT_MS =>
+                                        {
                                             rotary_mode = RotaryDeltaMode::Stride;
                                             info!("USB: rotary mode -> stride (dt={}ms)", dt_ms);
                                         }
-                                        RotaryDeltaMode::Stride if dt_ms >= EXIT_STRIDE_DT_MS => {
+                                        RotaryDeltaMode::Stride
+                                            if (EXIT_STRIDE_DT_MS..EXIT_NORMAL_DT_MS)
+                                                .contains(&dt_ms) =>
+                                        {
+                                            rotary_mode = RotaryDeltaMode::Normal;
+                                            info!("USB: rotary mode -> normal (dt={}ms)", dt_ms);
+                                        }
+                                        RotaryDeltaMode::Normal | RotaryDeltaMode::Stride
+                                            if dt_ms >= EXIT_NORMAL_DT_MS =>
+                                        {
                                             rotary_mode = RotaryDeltaMode::Precise;
                                             info!("USB: rotary mode -> precise (dt={}ms)", dt_ms);
                                         }
